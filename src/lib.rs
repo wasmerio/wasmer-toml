@@ -55,6 +55,20 @@ impl Default for Abi {
 pub static MANIFEST_FILE_NAME: &str = "wapm.toml";
 pub static PACKAGES_DIR_NAME: &str = "wapm_packages";
 
+pub static README_PATHS: &[&'static str;5]  = &[
+    "README",
+    "README.md",
+    "README.markdown",
+    "README.mdown",
+    "README.mkdn",
+];
+
+pub static LICENSE_PATHS: &[&'static str;3] = &[
+    "LICENSE", 
+    "LICENSE.md", 
+    "COPYING"
+];
+
 /// Describes a command for a wapm module
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Package {
@@ -211,18 +225,12 @@ impl Manifest {
         if manifest.package.readme.is_none() {
             manifest.package.readme = Self::locate_file(
                 path.as_ref(),
-                &[
-                    "README",
-                    "README.md",
-                    "README.markdown",
-                    "README.mdown",
-                    "README.mkdn",
-                ],
+                &README_PATHS[..],
             );
         }
         if manifest.package.license_file.is_none() {
             manifest.package.license_file =
-                Self::locate_file(path.as_ref(), &["LICENSE", "LICENSE.md", "COPYING"]);
+                Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
         }
         manifest.validate()?;
         Ok(manifest)
