@@ -191,7 +191,7 @@ impl CommandV2 {
     }
 }
 
-fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
+pub fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
     match val {
         toml::Value::String(s) => serde_cbor::Value::Text(s.clone()),
         toml::Value::Integer(i) => serde_cbor::Value::Integer(*i as i128),
@@ -209,7 +209,7 @@ fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
     }
 }
 
-fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
+pub fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
     match val {
         serde_json::Value::Null => serde_cbor::Value::Null,
         serde_json::Value::Bool(b) => serde_cbor::Value::Bool(*b),
@@ -236,7 +236,7 @@ fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
     }
 }
 
-fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
+pub fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
     match val {
         serde_yaml::Value::Null => serde_cbor::Value::Null,
         serde_yaml::Value::Bool(b) => serde_cbor::Value::Bool(*b),
