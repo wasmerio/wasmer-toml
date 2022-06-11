@@ -157,7 +157,131 @@ pub struct CommandV1 {
 pub struct CommandV2 {
     pub name: String,
     pub runner: String,
-    pub annotations: Option<toml::Value>,
+    pub annotations: Option<CommandAnnotations>,
+}
+
+impl CommandV2 {
+    pub fn get_annotations(&self, basepath: &PathBuf) -> Result<Option<serde_cbor::Value>, String> {
+        match self.annotations.as_ref() {
+            Some(CommandAnnotations::Raw(v)) => Ok(Some(toml_to_cbor_value(v))),
+            Some(CommandAnnotations::File(FileCommandAnnotations { file, kind })) => {
+                let path = basepath.parent().unwrap_or(Path::new(".")).join(file.clone());
+                let file = std::fs::read_to_string(&path).map_err(|e| {
+                    format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
+                })?;
+                match kind {
+                    FileKind::Json => {
+                        let value: serde_json::Value = serde_json::from_str(&file)
+                        .map_err(|e| {
+                            format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
+                        })?;
+                        Ok(Some(json_to_cbor_value(&value)))
+                    },
+                    FileKind::Yaml => {
+                        let value: serde_yaml::Value = serde_yaml::from_str(&file)
+                        .map_err(|e| {
+                            format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
+                        })?;
+                        Ok(Some(yaml_to_cbor_value(&value)))
+                    }
+                }
+            },
+            None => Ok(None),
+        }
+    }
+}
+
+fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
+    match val {
+        toml::Value::String(s) => serde_cbor::Value::Text(s.clone()),
+        toml::Value::Integer(i) => serde_cbor::Value::Integer(*i as i128),
+        toml::Value::Float(f) => serde_cbor::Value::Float(*f),
+        toml::Value::Boolean(b) => serde_cbor::Value::Bool(*b),
+        toml::Value::Datetime(d) => serde_cbor::Value::Text(format!("{}", d)),
+        toml::Value::Array(sq) => serde_cbor::Value::Array(
+            sq.into_iter().map(toml_to_cbor_value).collect()
+        ),
+        toml::Value::Table(m) => {
+            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
+                (serde_cbor::Value::Text(k.clone()), toml_to_cbor_value(v))
+            }).collect())
+        },
+    }
+}
+
+fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
+    match val {
+        serde_json::Value::Null => serde_cbor::Value::Null,
+        serde_json::Value::Bool(b) => serde_cbor::Value::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                serde_cbor::Value::Integer(i as i128)
+            } else if let Some(u) = n.as_u64() {
+                serde_cbor::Value::Integer(u as i128)
+            } else if let Some(f) = n.as_f64() {
+                serde_cbor::Value::Float(f as f64)
+            } else {
+                serde_cbor::Value::Null
+            }
+        },
+        serde_json::Value::String(s) => serde_cbor::Value::Text(s.clone()),
+        serde_json::Value::Array(sq) => serde_cbor::Value::Array(
+            sq.into_iter().map(json_to_cbor_value).collect()
+        ),
+        serde_json::Value::Object(m) => {
+            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
+                (serde_cbor::Value::Text(k.clone()), json_to_cbor_value(v))
+            }).collect())
+        },
+    }
+}
+
+fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
+    match val {
+        serde_yaml::Value::Null => serde_cbor::Value::Null,
+        serde_yaml::Value::Bool(b) => serde_cbor::Value::Bool(*b),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                serde_cbor::Value::Integer(i as i128)
+            } else if let Some(u) = n.as_u64() {
+                serde_cbor::Value::Integer(u as i128)
+            } else if let Some(f) = n.as_f64() {
+                serde_cbor::Value::Float(f as f64)
+            } else {
+                serde_cbor::Value::Null
+            }
+        },
+        serde_yaml::Value::String(s) => serde_cbor::Value::Text(s.clone()),
+        serde_yaml::Value::Sequence(sq) => serde_cbor::Value::Array(
+            sq.into_iter().map(yaml_to_cbor_value).collect()
+        ),
+        serde_yaml::Value::Mapping(m) => {
+            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
+                (yaml_to_cbor_value(k), yaml_to_cbor_value(v))
+            }).collect())
+        },
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum CommandAnnotations {
+    Raw(toml::Value),
+    File(FileCommandAnnotations)
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FileCommandAnnotations {
+    pub file: PathBuf,
+    pub kind: FileKind,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Deserialize, Serialize)]
+pub enum FileKind {
+    #[serde(rename = "yaml")]
+    Yaml,
+    #[serde(rename = "json")]
+    Json,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
