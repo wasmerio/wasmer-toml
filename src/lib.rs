@@ -165,7 +165,7 @@ impl CommandV2 {
         match self.annotations.as_ref() {
             Some(CommandAnnotations::Raw(v)) => Ok(Some(toml_to_cbor_value(v))),
             Some(CommandAnnotations::File(FileCommandAnnotations { file, kind })) => {
-                let path = basepath.parent().unwrap_or(Path::new(".")).join(file.clone());
+                let path = basepath.join(file.clone());
                 let file = std::fs::read_to_string(&path).map_err(|e| {
                     format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
                 })?;
@@ -265,9 +265,10 @@ pub fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
+#[repr(C)]
 pub enum CommandAnnotations {
+    File(FileCommandAnnotations),
     Raw(toml::Value),
-    File(FileCommandAnnotations)
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
