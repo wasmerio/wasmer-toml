@@ -1,7 +1,13 @@
 [package]
 name = "wapm-toml"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
+license = "MIT"
+authors = ["The Wasmer Engineering Team <engineering@wasmer.io>"]
+homepage = "https://wasmer.io/"
+repository = "https://github.com/wasmerio/wapm-toml"
+keywords = ["wasm", "wapm", "wasmer", "toml"]
+categories = ["parser-implementations", "wasm"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,3 +21,6 @@ semver = { version = "0.11", features = ["serde"] }
 serde_json = "1.0.81"
 serde_yaml = "0.8.24"
 serde_cbor = "0.11.2"
+
+[dev-dependencies]
+tempfile = "3.3.0"
