@@ -1,15 +1,15 @@
 //! The Manifest file is where the core metadata of a wapm package lives
 
 use semver::Version;
-use std::collections::hash_map::HashMap;
-use std::{fs, fmt};
+use serde_derive::{Deserialize, Serialize};
+use std::collections::{hash_map::HashMap, BTreeSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use serde_derive::{Serialize, Deserialize};
 
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
 /// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Abi {
     #[serde(rename = "emscripten")]
     Emscripten,
@@ -17,6 +17,8 @@ pub enum Abi {
     None,
     #[serde(rename = "wasi")]
     Wasi,
+    #[serde(rename = "wasm4")]
+    WASM4,
 }
 
 impl Abi {
@@ -24,13 +26,14 @@ impl Abi {
         match self {
             Abi::Emscripten => "emscripten",
             Abi::Wasi => "wasi",
+            Abi::WASM4 => "wasm4",
             Abi::None => "generic",
         }
     }
     pub fn is_none(&self) -> bool {
-        return self == &Abi::None;
+        self == &Abi::None
     }
-    pub fn from_str(name: &str) -> Self {
+    pub fn from_name(name: &str) -> Self {
         match name.to_lowercase().as_ref() {
             "emscripten" => Abi::Emscripten,
             "wasi" => Abi::Wasi,
@@ -55,7 +58,7 @@ impl Default for Abi {
 pub static MANIFEST_FILE_NAME: &str = "wapm.toml";
 pub static PACKAGES_DIR_NAME: &str = "wapm_packages";
 
-pub static README_PATHS: &[&'static str;5]  = &[
+pub static README_PATHS: &[&str; 5] = &[
     "README",
     "README.md",
     "README.markdown",
@@ -63,11 +66,7 @@ pub static README_PATHS: &[&'static str;5]  = &[
     "README.mkdn",
 ];
 
-pub static LICENSE_PATHS: &[&'static str;3] = &[
-    "LICENSE", 
-    "LICENSE.md", 
-    "COPYING"
-];
+pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
 /// Describes a command for a wapm module
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -92,8 +91,9 @@ pub struct Package {
     pub disable_command_rename: bool,
     /// Unlike, `disable-command-rename` which prevents `wapm run <Module name>`,
     /// this flag enables the command rename of `wapm run <COMMAND_NAME>` into
-    /// just `<COMMAND_NAME>. This is useful for programs that need to inspect
-    /// their argv[0] names and when the command name matches their executable name.
+    /// just `<COMMAND_NAME>`. This is useful for programs that need to inspect
+    /// their `argv[0]` names and when the command name matches their executable
+    /// name.
     #[serde(
         rename = "rename-commands-to-raw-command-name",
         default,
@@ -110,7 +110,6 @@ pub enum Command {
 }
 
 impl Command {
-
     pub fn get_name(&self) -> String {
         match self {
             Self::V1(c) => c.name.clone(),
@@ -156,36 +155,49 @@ pub struct CommandV1 {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommandV2 {
     pub name: String,
+    pub module: String,
     pub runner: String,
     pub annotations: Option<CommandAnnotations>,
 }
 
 impl CommandV2 {
-    pub fn get_annotations(&self, basepath: &PathBuf) -> Result<Option<serde_cbor::Value>, String> {
+    pub fn get_annotations(&self, basepath: &Path) -> Result<Option<serde_cbor::Value>, String> {
         match self.annotations.as_ref() {
             Some(CommandAnnotations::Raw(v)) => Ok(Some(toml_to_cbor_value(v))),
             Some(CommandAnnotations::File(FileCommandAnnotations { file, kind })) => {
                 let path = basepath.join(file.clone());
                 let file = std::fs::read_to_string(&path).map_err(|e| {
-                    format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
+                    format!(
+                        "Error reading {:?}.annotation ({:?}): {e}",
+                        self.name,
+                        path.display()
+                    )
                 })?;
                 match kind {
                     FileKind::Json => {
-                        let value: serde_json::Value = serde_json::from_str(&file)
-                        .map_err(|e| {
-                            format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
-                        })?;
+                        let value: serde_json::Value =
+                            serde_json::from_str(&file).map_err(|e| {
+                                format!(
+                                    "Error reading {:?}.annotation ({:?}): {e}",
+                                    self.name,
+                                    path.display()
+                                )
+                            })?;
                         Ok(Some(json_to_cbor_value(&value)))
-                    },
+                    }
                     FileKind::Yaml => {
-                        let value: serde_yaml::Value = serde_yaml::from_str(&file)
-                        .map_err(|e| {
-                            format!("Error reading {:?}.annotation ({:?}): {e}", self.name, path.display())
-                        })?;
+                        let value: serde_yaml::Value =
+                            serde_yaml::from_str(&file).map_err(|e| {
+                                format!(
+                                    "Error reading {:?}.annotation ({:?}): {e}",
+                                    self.name,
+                                    path.display()
+                                )
+                            })?;
                         Ok(Some(yaml_to_cbor_value(&value)))
                     }
                 }
-            },
+            }
             None => Ok(None),
         }
     }
@@ -198,14 +210,14 @@ pub fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
         toml::Value::Float(f) => serde_cbor::Value::Float(*f),
         toml::Value::Boolean(b) => serde_cbor::Value::Bool(*b),
         toml::Value::Datetime(d) => serde_cbor::Value::Text(format!("{}", d)),
-        toml::Value::Array(sq) => serde_cbor::Value::Array(
-            sq.into_iter().map(toml_to_cbor_value).collect()
+        toml::Value::Array(sq) => {
+            serde_cbor::Value::Array(sq.iter().map(toml_to_cbor_value).collect())
+        }
+        toml::Value::Table(m) => serde_cbor::Value::Map(
+            m.iter()
+                .map(|(k, v)| (serde_cbor::Value::Text(k.clone()), toml_to_cbor_value(v)))
+                .collect(),
         ),
-        toml::Value::Table(m) => {
-            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
-                (serde_cbor::Value::Text(k.clone()), toml_to_cbor_value(v))
-            }).collect())
-        },
     }
 }
 
@@ -219,20 +231,20 @@ pub fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
             } else if let Some(u) = n.as_u64() {
                 serde_cbor::Value::Integer(u as i128)
             } else if let Some(f) = n.as_f64() {
-                serde_cbor::Value::Float(f as f64)
+                serde_cbor::Value::Float(f)
             } else {
                 serde_cbor::Value::Null
             }
-        },
+        }
         serde_json::Value::String(s) => serde_cbor::Value::Text(s.clone()),
-        serde_json::Value::Array(sq) => serde_cbor::Value::Array(
-            sq.into_iter().map(json_to_cbor_value).collect()
+        serde_json::Value::Array(sq) => {
+            serde_cbor::Value::Array(sq.iter().map(json_to_cbor_value).collect())
+        }
+        serde_json::Value::Object(m) => serde_cbor::Value::Map(
+            m.iter()
+                .map(|(k, v)| (serde_cbor::Value::Text(k.clone()), json_to_cbor_value(v)))
+                .collect(),
         ),
-        serde_json::Value::Object(m) => {
-            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
-                (serde_cbor::Value::Text(k.clone()), json_to_cbor_value(v))
-            }).collect())
-        },
     }
 }
 
@@ -246,20 +258,20 @@ pub fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
             } else if let Some(u) = n.as_u64() {
                 serde_cbor::Value::Integer(u as i128)
             } else if let Some(f) = n.as_f64() {
-                serde_cbor::Value::Float(f as f64)
+                serde_cbor::Value::Float(f)
             } else {
                 serde_cbor::Value::Null
             }
-        },
+        }
         serde_yaml::Value::String(s) => serde_cbor::Value::Text(s.clone()),
-        serde_yaml::Value::Sequence(sq) => serde_cbor::Value::Array(
-            sq.into_iter().map(yaml_to_cbor_value).collect()
+        serde_yaml::Value::Sequence(sq) => {
+            serde_cbor::Value::Array(sq.iter().map(yaml_to_cbor_value).collect())
+        }
+        serde_yaml::Value::Mapping(m) => serde_cbor::Value::Map(
+            m.iter()
+                .map(|(k, v)| (yaml_to_cbor_value(k), yaml_to_cbor_value(v)))
+                .collect(),
         ),
-        serde_yaml::Value::Mapping(m) => {
-            serde_cbor::Value::Map(m.iter().map(|(k, v)| {
-                (yaml_to_cbor_value(k), yaml_to_cbor_value(v))
-            }).collect())
-        },
     }
 }
 
@@ -271,7 +283,7 @@ pub enum CommandAnnotations {
     Raw(toml::Value),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FileCommandAnnotations {
     pub file: PathBuf,
     pub kind: FileKind,
@@ -285,7 +297,7 @@ pub enum FileKind {
     Json,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Module {
     pub name: String,
     pub source: PathBuf,
@@ -294,9 +306,169 @@ pub struct Module {
     #[serde(default)]
     pub kind: Option<String>,
     #[cfg(feature = "package")]
-    pub fs: Option<Table>,
+    pub fs: Option<toml::value::Table>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interfaces: Option<HashMap<String, String>>,
+    pub bindings: Option<Bindings>,
+}
+
+/// The interface exposed by a [`Module`].
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", untagged)]
+pub enum Bindings {
+    Wit(WitBindings),
+    Wai(WaiBindings),
+}
+
+impl Bindings {
+    /// Get all files that make up this interface.
+    ///
+    /// For all binding types except [`WitBindings`], this will recursively
+    /// look for any files that are imported.
+    ///
+    /// The caller can assume that any path that was referenced exists.
+    pub fn referenced_files(&self, base_directory: &Path) -> Result<Vec<PathBuf>, ImportsError> {
+        match self {
+            Bindings::Wit(WitBindings { wit_exports, .. }) => {
+                // Note: we explicitly don't support imported files with WIT
+                // because wit-bindgen's wit-parser crate isn't on crates.io.
+
+                let path = base_directory.join(wit_exports);
+
+                if path.exists() {
+                    Ok(vec![path])
+                } else {
+                    Err(ImportsError::FileNotFound(path))
+                }
+            }
+            Bindings::Wai(wai) => wai.referenced_files(base_directory),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct WitBindings {
+    /// The version of the WIT format being used.
+    pub wit_bindgen: Version,
+    /// The `*.wit` file's location on disk.
+    pub wit_exports: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct WaiBindings {
+    /// The version of the WAI format being used.
+    pub wai_version: Version,
+    /// The `*.wai` file defining the interface this package exposes.
+    pub exports: Option<PathBuf>,
+    /// The `*.wai` files for any functionality this package imports from the
+    /// host.
+    #[serde(default)]
+    pub imports: Vec<PathBuf>,
+}
+
+impl WaiBindings {
+    fn referenced_files(&self, base_directory: &Path) -> Result<Vec<PathBuf>, ImportsError> {
+        let WaiBindings {
+            exports, imports, ..
+        } = self;
+
+        // Note: WAI files may import other WAI files, so we start with all
+        // WAI files mentioned in the wapm.toml then recursively add their
+        // imports.
+
+        let initial_paths = exports
+            .iter()
+            .chain(imports)
+            .map(|relative_path| base_directory.join(relative_path));
+
+        let mut to_check: Vec<PathBuf> = Vec::new();
+
+        for path in initial_paths {
+            if !path.exists() {
+                return Err(ImportsError::FileNotFound(path));
+            }
+            to_check.push(path);
+        }
+
+        let mut files = BTreeSet::new();
+
+        while let Some(path) = to_check.pop() {
+            if files.contains(&path) {
+                continue;
+            }
+
+            to_check.extend(get_imported_wai_files(&path)?);
+            files.insert(path);
+        }
+
+        Ok(files.into_iter().collect())
+    }
+}
+
+/// Parse a `*.wai` file to find the absolute path for any other `*.wai` files
+/// it may import, relative to the original `*.wai` file.
+///
+/// This function makes sure any imported files exist.
+fn get_imported_wai_files(path: &Path) -> Result<Vec<PathBuf>, ImportsError> {
+    let _wai_src = std::fs::read_to_string(path).map_err(|error| ImportsError::Read {
+        path: path.to_path_buf(),
+        error,
+    })?;
+
+    let parent_dir = path.parent()
+            .expect("All paths should have a parent directory because we joined them relative to the base directory");
+
+    // TODO(Michael-F-Bryan): update the wai-parser crate to give you access to
+    // the imported interfaces. For now, we just pretend there are no import
+    // statements in the *.wai file.
+    let raw_imports: Vec<String> = Vec::new();
+
+    // Note: imported paths in a *.wai file are all relative, so we need to
+    // resolve their absolute path relative to the original *.wai file.
+    let mut resolved_paths = Vec::new();
+
+    for imported in raw_imports {
+        let absolute_path = parent_dir.join(imported);
+
+        if !absolute_path.exists() {
+            return Err(ImportsError::ImportedFileNotFound {
+                path: absolute_path,
+                referenced_by: path.to_path_buf(),
+            });
+        }
+
+        resolved_paths.push(absolute_path);
+    }
+
+    Ok(resolved_paths)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ImportsError {
+    #[error(
+        "The \"{}\" mentioned in the manifest doesn't exist",
+        _0.display(),
+    )]
+    FileNotFound(PathBuf),
+    #[error(
+        "The \"{}\" imported by \"{}\" doesn't exist",
+        path.display(),
+        referenced_by.display(),
+    )]
+    ImportedFileNotFound {
+        path: PathBuf,
+        referenced_by: PathBuf,
+    },
+    #[error("Unable to parse \"{}\" as a WAI file", path.display())]
+    WaiParse { path: PathBuf },
+    #[error("Unable to read \"{}\"", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        error: std::io::Error,
+    },
 }
 
 /// The manifest represents the file used to describe a Wasm package.
@@ -322,7 +494,32 @@ pub struct Manifest {
     pub base_directory_path: PathBuf,
 }
 
+#[cfg(feature = "integration_tests")]
+pub mod integration_tests {
+    pub mod data {
+        //! Global data definitions used for testing
+
+        use std::cell::RefCell;
+        use std::thread_local;
+
+        thread_local! {
+            /// The string is the contents of the manifest, the Option is whether or not the manifest exists.
+            /// Used to mock reading and writing the manifest to the file system.
+            // for now we just have one manifest, a more complex implementation may be useful later
+            pub static RAW_MANIFEST_DATA: RefCell<Option<String>> = RefCell::new(None);
+
+            /// The string is the contents of the manifest, the Option is whether or not the manifest exists.
+            /// Used to mock reading and writing the manifest to the file system.
+            pub static RAW_CONFIG_DATA: RefCell<Option<String>> = RefCell::new(None);
+        }
+    }
+}
 impl Manifest {
+    pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(s)
+    }
+
+    #[cfg(not(feature = "integration_tests"))]
     fn locate_file(path: &Path, candidates: &[&str]) -> Option<PathBuf> {
         for filename in candidates {
             let path_buf = path.join(filename);
@@ -342,20 +539,16 @@ impl Manifest {
             ));
         }
         let manifest_path_buf = path.as_ref().join(MANIFEST_FILE_NAME);
-        let contents = fs::read_to_string(&manifest_path_buf).map_err(|_e| {
+        let contents = std::fs::read_to_string(&manifest_path_buf).map_err(|_e| {
             ManifestError::MissingManifest(manifest_path_buf.to_string_lossy().to_string())
         })?;
         let mut manifest: Self = toml::from_str(contents.as_str())
             .map_err(|e| ManifestError::TomlParseError(e.to_string()))?;
         if manifest.package.readme.is_none() {
-            manifest.package.readme = Self::locate_file(
-                path.as_ref(),
-                &README_PATHS[..],
-            );
+            manifest.package.readme = Self::locate_file(path.as_ref(), &README_PATHS[..]);
         }
         if manifest.package.license_file.is_none() {
-            manifest.package.license_file =
-                Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
+            manifest.package.license_file = Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
         }
         manifest.validate()?;
         Ok(manifest)
@@ -375,8 +568,8 @@ impl Manifest {
 
         if let Some(ref commands) = self.command {
             for command in commands {
-                if let Some(ref module) = module_map.get(&command.get_module()) {
-                    if module.abi == Abi::None {
+                if let Some(module) = module_map.get(&command.get_module()) {
+                    if module.abi == Abi::None && module.interfaces.is_none() {
                         return Err(ManifestError::ValidationError(ValidationError::MissingABI(
                             command.get_name(),
                             module.name.clone(),
@@ -420,7 +613,7 @@ impl Manifest {
     pub fn save(&self) -> anyhow::Result<()> {
         let manifest_string = self.to_string()?;
         let manifest_path = self.manifest_path();
-        fs::write(manifest_path, &manifest_string)
+        std::fs::write(manifest_path, manifest_string)
             .map_err(|e| ManifestError::CannotSaveManifest(e.to_string()))?;
         Ok(())
     }
@@ -441,7 +634,7 @@ impl Manifest {
         // ignore path for now
         crate::integration_tests::data::RAW_MANIFEST_DATA.with(|rmd| {
             if let Some(ref manifest_toml) = *rmd.borrow() {
-                let manifest: Self = toml::from_str(&manifest_toml)
+                let manifest: Self = toml::from_str(manifest_toml)
                     .map_err(|e| ManifestError::TomlParseError(e.to_string()))?;
                 manifest.validate()?;
                 Ok(manifest)
@@ -482,7 +675,8 @@ pub enum ValidationError {
 
 #[cfg(test)]
 mod serialization_tests {
-    use crate::data::manifest::Manifest;
+    use super::*;
+    use toml::toml;
 
     #[test]
     fn get_manifest() {
@@ -495,13 +689,14 @@ mod serialization_tests {
             description = "The best package."
         };
         let manifest: Manifest = wapm_toml.try_into().unwrap();
-        assert_eq!(false, manifest.package.disable_command_rename);
+        assert!(!manifest.package.disable_command_rename);
     }
 }
 
 #[cfg(test)]
 mod command_tests {
-    use crate::data::manifest::Manifest;
+    use super::*;
+    use toml::toml;
 
     #[test]
     fn get_commands() {
@@ -534,17 +729,20 @@ mod command_tests {
 
 #[cfg(test)]
 mod dependency_tests {
-    use crate::data::manifest::{Manifest, MANIFEST_FILE_NAME};
-    use crate::util::create_temp_dir;
-    use std::fs::File;
-    use std::io::Write;
+    use super::*;
+    use std::{fs::File, io::Write};
+    use toml::toml;
 
     #[test]
+    #[cfg_attr(
+        feature = "integration_tests",
+        ignore = "Requires the actual Manifest::find_in_directory() implementation which has been mocked out"
+    )]
     fn add_new_dependency() {
-        let tmp_dir = create_temp_dir().unwrap();
+        let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
         let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
-        let mut file = File::create(&manifest_path).unwrap();
+        let mut file = File::create(manifest_path).unwrap();
         let wapm_toml = toml! {
             [package]
             name = "_/test"
@@ -582,6 +780,8 @@ mod dependency_tests {
 
 #[cfg(test)]
 mod manifest_tests {
+    use serde::Deserialize;
+
     use super::*;
 
     #[test]
@@ -598,20 +798,93 @@ name = "mod"
 source = "target/wasm32-wasi/release/mod.wasm"
 interfaces = {"wasi" = "0.0.0-unstable"}
 
+[[module]]
+name = "mod-with-exports"
+source = "target/wasm32-wasi/release/mod-with-exports.wasm"
+bindings = { wit-exports = "exports.wit", wit-bindgen = "0.0.0" }
+
 [[command]]
 name = "command"
 module = "mod"
 "#;
-        let manifest: Manifest = toml::from_str(manifest_str).unwrap();
+        let manifest: Manifest = Manifest::parse(manifest_str).unwrap();
+        let modules = manifest.module.as_deref().unwrap();
         assert_eq!(
-            manifest.module.unwrap()[0]
-                .interfaces
-                .as_ref()
-                .unwrap()
-                .get("wasi"),
+            modules[0].interfaces.as_ref().unwrap().get("wasi"),
             Some(&"0.0.0-unstable".to_string())
-        )
+        );
+
+        assert_eq!(
+            modules[1],
+            Module {
+                name: "mod-with-exports".to_string(),
+                source: PathBuf::from("target/wasm32-wasi/release/mod-with-exports.wasm"),
+                abi: Abi::None,
+                kind: None,
+                interfaces: None,
+                #[cfg(feature = "package")]
+                fs: None,
+                bindings: Some(Bindings::Wit(WitBindings {
+                    wit_exports: PathBuf::from("exports.wit"),
+                    wit_bindgen: "0.0.0".parse().unwrap()
+                })),
+            },
+        );
+    }
+
+    #[test]
+    fn parse_wit_bindings() {
+        let table = toml::toml! {
+            "wit-bindgen" = "0.1.0"
+            "wit-exports" = "./file.wit"
+        };
+
+        let bindings = Bindings::deserialize(table).unwrap();
+
+        assert_eq!(
+            bindings,
+            Bindings::Wit(WitBindings {
+                wit_bindgen: "0.1.0".parse().unwrap(),
+                wit_exports: PathBuf::from("./file.wit"),
+            }),
+        );
+    }
+
+    #[test]
+    fn parse_wai_bindings() {
+        let table = toml::toml! {
+            "wai-version" = "0.1.0"
+            "exports" = "./file.wai"
+            "imports" = ["a.wai", "../b.wai"]
+        };
+
+        let bindings = Bindings::deserialize(table).unwrap();
+
+        assert_eq!(
+            bindings,
+            Bindings::Wai(WaiBindings {
+                wai_version: "0.1.0".parse().unwrap(),
+                exports: Some(PathBuf::from("./file.wai")),
+                imports: vec![PathBuf::from("a.wai"), PathBuf::from("../b.wai")],
+            }),
+        );
+    }
+
+    #[test]
+    fn imports_and_exports_are_optional_with_wai() {
+        let table = toml::toml! {
+            "wai-version" = "0.1.0"
+        };
+
+        let bindings = Bindings::deserialize(table).unwrap();
+
+        assert_eq!(
+            bindings,
+            Bindings::Wai(WaiBindings {
+                wai_version: "0.1.0".parse().unwrap(),
+                exports: None,
+                imports: Vec::new(),
+            }),
+        );
     }
 }
-
-
