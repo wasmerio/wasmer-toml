@@ -305,8 +305,6 @@ pub struct Module {
     pub abi: Abi,
     #[serde(default)]
     pub kind: Option<String>,
-    #[cfg(feature = "package")]
-    pub fs: Option<toml::value::Table>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interfaces: Option<HashMap<String, String>>,
     pub bindings: Option<Bindings>,
@@ -494,32 +492,11 @@ pub struct Manifest {
     pub base_directory_path: PathBuf,
 }
 
-#[cfg(feature = "integration_tests")]
-pub mod integration_tests {
-    pub mod data {
-        //! Global data definitions used for testing
-
-        use std::cell::RefCell;
-        use std::thread_local;
-
-        thread_local! {
-            /// The string is the contents of the manifest, the Option is whether or not the manifest exists.
-            /// Used to mock reading and writing the manifest to the file system.
-            // for now we just have one manifest, a more complex implementation may be useful later
-            pub static RAW_MANIFEST_DATA: RefCell<Option<String>> = RefCell::new(None);
-
-            /// The string is the contents of the manifest, the Option is whether or not the manifest exists.
-            /// Used to mock reading and writing the manifest to the file system.
-            pub static RAW_CONFIG_DATA: RefCell<Option<String>> = RefCell::new(None);
-        }
-    }
-}
 impl Manifest {
     pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(s)
     }
 
-    #[cfg(not(feature = "integration_tests"))]
     fn locate_file(path: &Path, candidates: &[&str]) -> Option<PathBuf> {
         for filename in candidates {
             let path_buf = path.join(filename);
@@ -531,7 +508,6 @@ impl Manifest {
     }
 
     /// Construct a manifest by searching in the specified directory for a manifest file
-    #[cfg(not(feature = "integration_tests"))]
     pub fn find_in_directory<T: AsRef<Path>>(path: T) -> Result<Self, ManifestError> {
         if !path.as_ref().is_dir() {
             return Err(ManifestError::MissingManifest(
@@ -609,41 +585,12 @@ impl Manifest {
     }
 
     /// Write the manifest to permanent storage
-    #[cfg(not(feature = "integration_tests"))]
     pub fn save(&self) -> anyhow::Result<()> {
         let manifest_string = self.to_string()?;
         let manifest_path = self.manifest_path();
         std::fs::write(manifest_path, manifest_string)
             .map_err(|e| ManifestError::CannotSaveManifest(e.to_string()))?;
         Ok(())
-    }
-
-    /// Mock version of `save`
-    #[cfg(feature = "integration_tests")]
-    pub fn save(&self) -> anyhow::Result<()> {
-        let manifest_string = self.to_string()?;
-        crate::integration_tests::data::RAW_MANIFEST_DATA.with(|rmd| {
-            *rmd.borrow_mut() = Some(manifest_string);
-        });
-        Ok(())
-    }
-
-    /// Mock version of `find_in_directory`
-    #[cfg(feature = "integration_tests")]
-    pub fn find_in_directory<T: AsRef<Path>>(_path: T) -> Result<Self, ManifestError> {
-        // ignore path for now
-        crate::integration_tests::data::RAW_MANIFEST_DATA.with(|rmd| {
-            if let Some(ref manifest_toml) = *rmd.borrow() {
-                let manifest: Self = toml::from_str(manifest_toml)
-                    .map_err(|e| ManifestError::TomlParseError(e.to_string()))?;
-                manifest.validate()?;
-                Ok(manifest)
-            } else {
-                Err(ManifestError::MissingManifest(
-                    "Integration test manifest not found".to_string(),
-                ))
-            }
-        })
     }
 }
 
@@ -734,10 +681,6 @@ mod dependency_tests {
     use toml::toml;
 
     #[test]
-    #[cfg_attr(
-        feature = "integration_tests",
-        ignore = "Requires the actual Manifest::find_in_directory() implementation which has been mocked out"
-    )]
     fn add_new_dependency() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
@@ -822,8 +765,6 @@ module = "mod"
                 abi: Abi::None,
                 kind: None,
                 interfaces: None,
-                #[cfg(feature = "package")]
-                fs: None,
                 bindings: Some(Bindings::Wit(WitBindings {
                     wit_exports: PathBuf::from("exports.wit"),
                     wit_bindgen: "0.0.0".parse().unwrap()
