@@ -1,6 +1,7 @@
 [package]
 name = "wapm-toml"
 version = "0.3.0"
+description = "A parser for the wapm.toml format used by Wasmer and WAPM"
 edition = "2021"
 license = "MIT"
 authors = ["The Wasmer Engineering Team <engineering@wasmer.io>"]
