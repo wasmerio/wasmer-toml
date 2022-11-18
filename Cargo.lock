@@ -160,6 +160,9 @@ name = "serde"
 version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d193d69bae983fc11a79df82342761dfbf28a99fc8d203dca4c3c1b590948965"
+dependencies = [
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_cbor"
@@ -273,13 +276,12 @@ checksum = "6ceab39d59e4c9499d4e5a8ee0e2735b891bb7308ac83dfb4e80cad195c9f6f3"
 
 [[package]]
 name = "wapm-toml"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "semver",
  "serde",
  "serde_cbor",
- "serde_derive",
  "serde_json",
  "serde_yaml",
  "tempfile",
