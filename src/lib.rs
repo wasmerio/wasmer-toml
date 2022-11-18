@@ -363,10 +363,10 @@ impl<'de> Deserialize<'de> for Bindings {
     {
         let value = toml::Value::deserialize(deserializer)?;
 
-        let wit_bindgen = value.get("wit-bindgen").and_then(|w| w.as_str());
-        let wai_version = value.get("wai-version").and_then(|w| w.as_str());
+        let keys = ["wit-bindgen", "wai-version"];
+        let [wit_bindgen, wai_version] = keys.map(|key| value.get(key).is_some());
 
-        match (wit_bindgen.is_some(), wai_version.is_some()) {
+        match (wit_bindgen, wai_version) {
             (true, false) => WitBindings::deserialize(value)
                 .map(Bindings::Wit)
                 .map_err(D::Error::custom),
@@ -374,7 +374,6 @@ impl<'de> Deserialize<'de> for Bindings {
                 .map(Bindings::Wai)
                 .map_err(D::Error::custom),
             (true, true) | (false, false) => {
-                let keys = ["wit-bindgen", "wai-version"];
                 let msg = format!(
                     "expected one of \"{}\" to be provided, but not both",
                     keys.join("\" or \""),
@@ -824,7 +823,7 @@ module = "mod"
             bindings = { wit-bindgen = "0.1.0", wit-exports = "./file.wit" }
         };
 
-        let module = Module::deserialize(table.clone()).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
             module.bindings.as_ref().unwrap(),
@@ -844,7 +843,7 @@ module = "mod"
             bindings = { wai-version = "0.1.0", exports = "./file.wai", imports = ["a.wai", "../b.wai"] }
         };
 
-        let module = Module::deserialize(table.clone()).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
             module.bindings.as_ref().unwrap(),
@@ -878,7 +877,7 @@ module = "mod"
             bindings = { wai-version = "0.1.0" }
         };
 
-        let module = Module::deserialize(table.clone()).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
             module.bindings.as_ref().unwrap(),
@@ -898,7 +897,7 @@ module = "mod"
             wit-bindgen = "0.1.0"
         };
 
-        let err = Bindings::deserialize(table.clone()).unwrap_err();
+        let err = Bindings::deserialize(table).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -913,7 +912,7 @@ module = "mod"
             exports = "./file.wai"
         };
 
-        let err = Bindings::deserialize(table.clone()).unwrap_err();
+        let err = Bindings::deserialize(table).unwrap_err();
 
         assert_eq!(
             err.to_string(),
