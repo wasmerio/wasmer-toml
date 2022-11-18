@@ -272,6 +272,7 @@ pub fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
                 .map(|(k, v)| (yaml_to_cbor_value(k), yaml_to_cbor_value(v)))
                 .collect(),
         ),
+        serde_yaml::Value::Tagged(tag) => yaml_to_cbor_value(&tag.value),
     }
 }
 
