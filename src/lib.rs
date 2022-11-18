@@ -7,7 +7,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::{
     collections::{hash_map::HashMap, BTreeSet},
-    fmt::Display,
 };
 use thiserror::Error;
 
@@ -364,17 +363,6 @@ impl<'de> Deserialize<'de> for Bindings {
     where
         D: serde::Deserializer<'de>,
     {
-        struct MutuallyExclusive(&'static [&'static str]);
-
-        impl Display for MutuallyExclusive {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "expected one of ")?;
-                write!(f, "\"{}\"", self.0.join("\" or \""))?;
-                write!(f, " to be provided, but not both")?;
-                Ok(())
-            }
-        }
-
         let value = toml::Value::deserialize(deserializer)?;
 
         let wit_bindgen = value.get("wit-bindgen").and_then(|w| w.as_str());
@@ -387,10 +375,14 @@ impl<'de> Deserialize<'de> for Bindings {
             (false, true) => WaiBindings::deserialize(value)
                 .map(Bindings::Wai)
                 .map_err(D::Error::custom),
-            (true, true) | (false, false) => Err(D::Error::custom(MutuallyExclusive(&[
-                "wit-bindgen",
-                "wai-version",
-            ]))),
+            (true, true) | (false, false) => {
+                let keys = ["wit-bindgen", "wai-version"];
+                let msg = format!(
+                    "expected one of \"{}\" to be provided, but not both",
+                    keys.join("\" or \""),
+                );
+                Err(D::Error::custom(msg))
+            }
         }
     }
 }
