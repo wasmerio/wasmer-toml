@@ -1,6 +1,7 @@
 //! The Manifest file is where the core metadata of a wapm package lives
 
 use semver::Version;
+use serde::{de::Error as _, Deserialize, Serialize};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{hash_map::HashMap, BTreeSet};
 use std::fmt;
@@ -311,8 +312,7 @@ pub struct Module {
 }
 
 /// The interface exposed by a [`Module`].
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case", untagged)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Bindings {
     Wit(WitBindings),
     Wai(WaiBindings),
@@ -344,6 +344,46 @@ impl Bindings {
     }
 }
 
+impl Serialize for Bindings {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Bindings::Wit(w) => w.serialize(serializer),
+            Bindings::Wai(w) => w.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Bindings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = toml::Value::deserialize(deserializer)?;
+
+        let keys = ["wit-bindgen", "wai-version"];
+        let [wit_bindgen, wai_version] = keys.map(|key| value.get(key).is_some());
+
+        match (wit_bindgen, wai_version) {
+            (true, false) => WitBindings::deserialize(value)
+                .map(Bindings::Wit)
+                .map_err(D::Error::custom),
+            (false, true) => WaiBindings::deserialize(value)
+                .map(Bindings::Wai)
+                .map_err(D::Error::custom),
+            (true, true) | (false, false) => {
+                let msg = format!(
+                    "expected one of \"{}\" to be provided, but not both",
+                    keys.join("\" or \""),
+                );
+                Err(D::Error::custom(msg))
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct WitBindings {
@@ -362,7 +402,7 @@ pub struct WaiBindings {
     pub exports: Option<PathBuf>,
     /// The `*.wai` files for any functionality this package imports from the
     /// host.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub imports: Vec<PathBuf>,
 }
 
@@ -723,7 +763,9 @@ mod dependency_tests {
 
 #[cfg(test)]
 mod manifest_tests {
-    use serde::Deserialize;
+    use std::fmt::Debug;
+
+    use serde::{de::DeserializeOwned, Deserialize};
 
     use super::*;
 
@@ -776,56 +818,105 @@ module = "mod"
     #[test]
     fn parse_wit_bindings() {
         let table = toml::toml! {
-            "wit-bindgen" = "0.1.0"
-            "wit-exports" = "./file.wit"
+            name = "..."
+            source = "..."
+            bindings = { wit-bindgen = "0.1.0", wit-exports = "./file.wit" }
         };
 
-        let bindings = Bindings::deserialize(table).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
-            bindings,
-            Bindings::Wit(WitBindings {
+            module.bindings.as_ref().unwrap(),
+            &Bindings::Wit(WitBindings {
                 wit_bindgen: "0.1.0".parse().unwrap(),
                 wit_exports: PathBuf::from("./file.wit"),
             }),
         );
+        assert_round_trippable(&module);
     }
 
     #[test]
     fn parse_wai_bindings() {
         let table = toml::toml! {
-            "wai-version" = "0.1.0"
-            "exports" = "./file.wai"
-            "imports" = ["a.wai", "../b.wai"]
+            name = "..."
+            source = "..."
+            bindings = { wai-version = "0.1.0", exports = "./file.wai", imports = ["a.wai", "../b.wai"] }
         };
 
-        let bindings = Bindings::deserialize(table).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
-            bindings,
-            Bindings::Wai(WaiBindings {
+            module.bindings.as_ref().unwrap(),
+            &Bindings::Wai(WaiBindings {
                 wai_version: "0.1.0".parse().unwrap(),
                 exports: Some(PathBuf::from("./file.wai")),
                 imports: vec![PathBuf::from("a.wai"), PathBuf::from("../b.wai")],
             }),
+        );
+        assert_round_trippable(&module);
+    }
+
+    #[track_caller]
+    fn assert_round_trippable<T>(value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let repr = toml::to_string(value).unwrap();
+        let round_tripped: T = toml::from_str(&repr).unwrap();
+        assert_eq!(
+            round_tripped, *value,
+            "The value should convert to/from TOML losslessly"
         );
     }
 
     #[test]
     fn imports_and_exports_are_optional_with_wai() {
         let table = toml::toml! {
-            "wai-version" = "0.1.0"
+            name = "..."
+            source = "..."
+            bindings = { wai-version = "0.1.0" }
         };
 
-        let bindings = Bindings::deserialize(table).unwrap();
+        let module = Module::deserialize(table).unwrap();
 
         assert_eq!(
-            bindings,
-            Bindings::Wai(WaiBindings {
+            module.bindings.as_ref().unwrap(),
+            &Bindings::Wai(WaiBindings {
                 wai_version: "0.1.0".parse().unwrap(),
                 exports: None,
                 imports: Vec::new(),
             }),
+        );
+        assert_round_trippable(&module);
+    }
+
+    #[test]
+    fn ambiguous_bindings_table() {
+        let table = toml::toml! {
+            wai-version = "0.2.0"
+            wit-bindgen = "0.1.0"
+        };
+
+        let err = Bindings::deserialize(table).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both"
+        );
+    }
+
+    #[test]
+    fn bindings_table_that_is_neither_wit_nor_wai() {
+        let table = toml::toml! {
+            wai-bindgen = "lol, this should have been wai-version"
+            exports = "./file.wai"
+        };
+
+        let err = Bindings::deserialize(table).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both"
         );
     }
 }
