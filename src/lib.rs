@@ -3,11 +3,9 @@
 use semver::Version;
 use serde::{de::Error as _, Deserialize, Serialize};
 use serde_derive::{Deserialize, Serialize};
+use std::collections::{hash_map::HashMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::{
-    collections::{hash_map::HashMap, BTreeSet},
-};
 use thiserror::Error;
 
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
