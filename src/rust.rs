@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use std::collections::HashMap;
 use crate::{Abi, Bindings};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
