@@ -145,7 +145,8 @@ impl Command {
 
 /// Describes a command for a wapm module
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
+                              // a CommandV2 as a CommandV1
 pub struct CommandV1 {
     pub name: String,
     pub module: String,
