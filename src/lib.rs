@@ -7,6 +7,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+pub mod rust;
+
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
 /// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -658,18 +660,6 @@ pub enum ValidationError {
     MissingABI(String, String),
     #[error("missing module {0} in manifest used by command {1}")]
     MissingModuleForCommand(String, String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Wapm {
-    pub namespace: String,
-    pub package: Option<String>,
-    pub wasmer_extra_flags: Option<String>,
-    pub abi: Abi,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fs: Option<HashMap<String, PathBuf>>,
-    pub bindings: Option<Bindings>,
 }
 
 #[cfg(test)]
