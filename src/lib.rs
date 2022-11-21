@@ -102,7 +102,7 @@ pub struct Package {
     pub rename_commands_to_raw_command_name: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Command {
     V1(CommandV1),
@@ -144,7 +144,8 @@ impl Command {
 }
 
 /// Describes a command for a wapm module
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommandV1 {
     pub name: String,
     pub module: String,
@@ -152,7 +153,7 @@ pub struct CommandV1 {
     pub package: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct CommandV2 {
     pub name: String,
     pub module: String,
@@ -917,6 +918,48 @@ module = "mod"
         assert_eq!(
             err.to_string(),
             "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both"
+        );
+    }
+
+    #[test]
+    fn command_v2_isnt_ambiguous_with_command_v1() {
+        let src = r#"
+[package]
+name = "hotg-ai/sine"
+version = "0.12.0"
+description = "sine"
+
+[dependencies]
+"hotg-ai/train_test_split" = "0.12.1"
+"hotg-ai/elastic_net" = "0.12.1"
+
+[[module]] # This is the same as atoms
+name = "sine"
+kind = "tensorflow-SavedModel" # It can also be "wasm" (default)
+source = "models/sine"
+
+[[command]]
+name = "run"
+runner = "rune"
+module = "sine"
+annotations = { file = "Runefile.yml", kind = "yaml" }
+"#;
+
+        let manifest: Manifest = toml::from_str(src).unwrap();
+
+        let commands = &manifest.command.as_deref().unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0],
+            Command::V2(CommandV2 {
+                name: "run".into(),
+                module: "sine".into(),
+                runner: "rune".into(),
+                annotations: Some(CommandAnnotations::File(FileCommandAnnotations {
+                    file: "Runefile.yml".into(),
+                    kind: FileKind::Yaml,
+                }))
+            })
         );
     }
 }
