@@ -7,6 +7,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+pub mod rust;
+
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
 /// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
