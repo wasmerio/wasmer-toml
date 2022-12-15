@@ -77,6 +77,7 @@ pub struct PackageName {
 }
 
 impl PackageName {
+    /// Parses the package name from a `namespace/name` format
     pub fn parse(s: &str) -> Result<Self, &'static str> {
         if !s.contains('/') {
             return Err("no / in package name");
@@ -89,6 +90,25 @@ impl PackageName {
             .to_string();
         Ok(Self { name, namespace })
     }
+
+    /// Returns the `namespace/name` package name
+    pub fn to_string(&self) -> String {
+        format!("{}", self)
+    }
+}
+
+impl std::str::FromStr for PackageName {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl fmt::Display for PackageName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}/{}", self.namespace, self.name)
+    }
 }
 
 mod serde_package_name {
@@ -99,7 +119,7 @@ mod serde_package_name {
     where
         S: Serializer,
     {
-        s.serialize_str(&format!("{}/{}", package.namespace, package.name))
+        s.serialize_str(&package.to_string())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<PackageName, D::Error>
