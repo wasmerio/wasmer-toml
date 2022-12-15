@@ -889,7 +889,7 @@ mod serialization_tests {
     fn get_manifest() {
         let wapm_toml = toml! {
             [package]
-            name = "test"
+            name = "namespace/test"
             version = "1.0.0"
             repository = "test.git"
             homepage = "test.com"
@@ -909,7 +909,7 @@ mod command_tests {
     fn get_commands() {
         let wapm_toml = toml! {
             [package]
-            name = "test"
+            name = "namespace/test"
             version = "1.0.0"
             repository = "test.git"
             homepage = "test.com"
@@ -993,7 +993,7 @@ mod manifest_tests {
     fn interface_test() {
         let manifest_str = r#"
 [package]
-name = "test"
+name = "namespace/test"
 version = "0.0.0"
 description = "This is a test package"
 license = "MIT"
