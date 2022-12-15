@@ -76,6 +76,55 @@ pub struct PackageName {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub enum PackageNameParseError {
+    InvalidCharacterInName(char, String),
+    NameTooLong(String),
+    NoSlashInName(String),
+    NameNotPresent(String),
+    NamespaceNotPresent(String),
+    InvalidNamespace(NamespaceParseError),
+}
+
+impl fmt::Display for PackageNameParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::InvalidCharacterInName(c, s) => write!(f, "invalid character {c:?} in name {s}"),
+            Self::NameTooLong(s) => write!(f, "name too long: {} characters found, package names have a maximum length of {} characters", s.len(), MAX_NAME_LEN),
+            Self::NoSlashInName(s) => write!(f, "no \"/\" in package name: {s}"),
+            Self::NameNotPresent(s) => write!(f, "no name found in {s}"),
+            Self::NamespaceNotPresent(s) => write!(f, "no namespace found in {s}"),
+            Self::InvalidNamespace(n) => write!(f, "invalid namespace: {n}"),
+        }
+    }
+}
+
+impl From<NamespaceParseError> for PackageNameParseError {
+    fn from(e: NamespaceParseError) -> PackageNameParseError {
+        PackageNameParseError::InvalidNamespace(e)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub enum NamespaceParseError {
+    InvalidCharacterInNamespace(char, String),
+    NamespaceTooLong(String),
+}
+impl fmt::Display for NamespaceParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::InvalidCharacterInNamespace(c, s) => {
+                write!(f, "invalid character {c:?} in namespace {s}")
+            }
+            Self::NamespaceTooLong(s) => write!(
+                f,
+                "namespace too long, found {} characters, maximum = {} characters",
+                s.len(),
+                MAX_NAMESPACE_LEN
+            ),
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Namespace {
     /// A named entity (e.g. a user or organisation).
@@ -85,15 +134,26 @@ pub enum Namespace {
 }
 
 impl Namespace {
-    pub fn parse(s: &str) -> Result<Self, &'static str> {
-        if s.chars()
-            .any(|c| !(char::is_alphanumeric(c) || c == '_' || c == '-'))
-        {
-            return Err("invalid characters in namespace, only alphanumeric, _ and - allowed");
+    pub fn parse(s: &str) -> Result<Self, NamespaceParseError> {
+        let invalid_char = s
+            .chars()
+            .filter(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'))
+            .next();
+        if let Some(c) = invalid_char {
+            return Err(NamespaceParseError::InvalidCharacterInNamespace(
+                c,
+                s.to_string(),
+            ));
         }
         match s {
             "_" => Ok(Self::Underscore),
-            other => Ok(Self::Named(other.to_string())),
+            other => {
+                if other.len() > MAX_NAMESPACE_LEN {
+                    Err(NamespaceParseError::NamespaceTooLong(s.to_string()))
+                } else {
+                    Ok(Self::Named(other.to_string()))
+                }
+            }
         }
     }
     pub fn as_str(&self) -> Option<&str> {
@@ -105,7 +165,7 @@ impl Namespace {
 }
 
 impl std::str::FromStr for Namespace {
-    type Err = &'static str;
+    type Err = NamespaceParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
@@ -121,22 +181,42 @@ impl fmt::Display for Namespace {
     }
 }
 
+const MAX_NAME_LEN: usize = 100;
+const MAX_NAMESPACE_LEN: usize = 100;
+
 impl PackageName {
     /// Parses the package name from a `namespace/name` format
-    pub fn parse(s: &str) -> Result<Self, &'static str> {
+    pub fn parse(s: &str) -> Result<Self, PackageNameParseError> {
         if !s.contains('/') {
-            return Err("no / in package name");
+            return Err(PackageNameParseError::NoSlashInName(s.to_string()));
         }
         let mut split = s.split('/');
-        let namespace = split.next().ok_or("no namespace in package name")?;
+        let namespace = split
+            .next()
+            .ok_or(PackageNameParseError::NamespaceNotPresent(s.to_string()))?;
         let namespace = Namespace::parse(namespace)?;
-        let name = split.next().ok_or("no name in package name")?.to_string();
-        if name
+        let name = split
+            .next()
+            .ok_or(PackageNameParseError::NameNotPresent(s.to_string()))?
+            .to_string();
+        if name.len() > MAX_NAME_LEN {
+            return Err(PackageNameParseError::NameTooLong(s.to_string()));
+        }
+        if split.next().is_some() {
+            return Err(PackageNameParseError::InvalidCharacterInName(
+                '/',
+                s.to_string(),
+            ));
+        }
+        let invalid_char = name
             .chars()
-            .any(|c| !(char::is_alphanumeric(c) || c == '_' || c == '-'))
-            || split.next().is_some()
-        {
-            return Err("invalid characters in name, only alphanumeric, _ and - allowed");
+            .filter(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'))
+            .next();
+        if let Some(c) = invalid_char {
+            return Err(PackageNameParseError::InvalidCharacterInName(
+                c,
+                s.to_string(),
+            ));
         }
         Ok(Self { name, namespace })
     }
@@ -144,7 +224,7 @@ impl PackageName {
 }
 
 impl std::str::FromStr for PackageName {
-    type Err = &'static str;
+    type Err = PackageNameParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
@@ -1079,7 +1159,7 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
 fn test_package_name_parse() {
     assert_eq!(
         PackageName::parse("hello").unwrap_err(),
-        "no / in package name"
+        PackageNameParseError::NoSlashInName("hello".to_string()),
     );
     assert_eq!(
         PackageName::parse("hello/test").unwrap(),
@@ -1097,6 +1177,6 @@ fn test_package_name_parse() {
     );
     assert_eq!(
         PackageName::parse("_/_/test").unwrap_err(),
-        "invalid characters in name, only alphanumeric, _ and - allowed",
+        PackageNameParseError::InvalidCharacterInName('/', "_/_/test".to_string()),
     );
 }
