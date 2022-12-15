@@ -70,10 +70,55 @@ pub static README_PATHS: &[&str; 5] = &[
 
 pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PackageName {
-    pub namespace: String,
+    pub namespace: Namespace,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Namespace {
+    /// A named entity (e.g. a user or organisation).
+    Named(String),
+    /// The special namespace granted to "official" packages.
+    Underscore,
+}
+
+impl Namespace {
+    pub fn parse(s: &str) -> Result<Self, &'static str> {
+        if s.chars()
+            .any(|c| !(char::is_alphanumeric(c) || c == '_' || c == '-'))
+        {
+            return Err("invalid characters in namespace, only alphanumeric, _ and - allowed");
+        }
+        match s {
+            "_" => Ok(Self::Underscore),
+            other => Ok(Self::Named(other.to_string())),
+        }
+    }
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Namespace::Named(s) => Some(s),
+            Namespace::Underscore => None,
+        }
+    }
+}
+
+impl std::str::FromStr for Namespace {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl fmt::Display for Namespace {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Namespace::Named(s) => write!(f, "{s}"),
+            Namespace::Underscore => write!(f, "_"),
+        }
+    }
 }
 
 impl PackageName {
@@ -84,10 +129,8 @@ impl PackageName {
         }
         let mut split = s.split('/');
         let name = split.next().ok_or("no name in package name")?.to_string();
-        let namespace = split
-            .next()
-            .ok_or("no namespace in package name")?
-            .to_string();
+        let namespace = split.next().ok_or("no namespace in package name")?;
+        let namespace = Namespace::parse(namespace)?;
         Ok(Self { name, namespace })
     }
 
