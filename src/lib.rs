@@ -137,8 +137,7 @@ impl Namespace {
     pub fn parse(s: &str) -> Result<Self, NamespaceParseError> {
         let invalid_char = s
             .chars()
-            .filter(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'))
-            .next();
+            .find(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'));
         if let Some(c) = invalid_char {
             return Err(NamespaceParseError::InvalidCharacterInNamespace(
                 c,
@@ -193,11 +192,11 @@ impl PackageName {
         let mut split = s.split('/');
         let namespace = split
             .next()
-            .ok_or(PackageNameParseError::NamespaceNotPresent(s.to_string()))?;
+            .ok_or_else(|| PackageNameParseError::NamespaceNotPresent(s.to_string()))?;
         let namespace = Namespace::parse(namespace)?;
         let name = split
             .next()
-            .ok_or(PackageNameParseError::NameNotPresent(s.to_string()))?
+            .ok_or_else(|| PackageNameParseError::NameNotPresent(s.to_string()))?
             .to_string();
         if name.len() > MAX_NAME_LEN {
             return Err(PackageNameParseError::NameTooLong(s.to_string()));
@@ -210,8 +209,7 @@ impl PackageName {
         }
         let invalid_char = name
             .chars()
-            .filter(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'))
-            .next();
+            .find(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'));
         if let Some(c) = invalid_char {
             return Err(PackageNameParseError::InvalidCharacterInName(
                 c,
@@ -220,7 +218,6 @@ impl PackageName {
         }
         Ok(Self { name, namespace })
     }
-
 }
 
 impl std::str::FromStr for PackageName {
@@ -334,7 +331,7 @@ impl Command {
 }
 
 /// Describes a command for a wapm module
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
                               // a CommandV2 as a CommandV1
 pub struct CommandV1 {
