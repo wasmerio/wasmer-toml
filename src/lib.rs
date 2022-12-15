@@ -141,10 +141,6 @@ impl PackageName {
         Ok(Self { name, namespace })
     }
 
-    /// Returns the `namespace/name` package name
-    pub fn to_string(&self) -> String {
-        format!("{}", self)
-    }
 }
 
 impl std::str::FromStr for PackageName {
