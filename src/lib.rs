@@ -2,6 +2,7 @@
 
 use semver::Version;
 use serde::{de::Error as _, Deserialize, Serialize};
+use serde::{Deserializer, Serializer};
 use std::collections::{hash_map::HashMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -234,18 +235,17 @@ impl fmt::Display for PackageName {
     }
 }
 
-mod serde_package_name {
-    use super::PackageName;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(package: &PackageName, s: S) -> Result<S::Ok, S::Error>
+impl Serialize for PackageName {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        s.serialize_str(&package.to_string())
+        s.serialize_str(&self.to_string())
     }
+}
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<PackageName, D::Error>
+impl<'de> Deserialize<'de> for PackageName {
+    fn deserialize<D>(deserializer: D) -> Result<PackageName, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -257,7 +257,6 @@ mod serde_package_name {
 /// Describes a command for a wapm module
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Package {
-    #[serde(with = "serde_package_name")]
     pub name: PackageName,
     pub version: Version,
     pub description: String,
