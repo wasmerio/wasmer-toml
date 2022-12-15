@@ -128,9 +128,16 @@ impl PackageName {
             return Err("no / in package name");
         }
         let mut split = s.split('/');
-        let name = split.next().ok_or("no name in package name")?.to_string();
         let namespace = split.next().ok_or("no namespace in package name")?;
         let namespace = Namespace::parse(namespace)?;
+        let name = split.next().ok_or("no name in package name")?.to_string();
+        if name
+            .chars()
+            .any(|c| !(char::is_alphanumeric(c) || c == '_' || c == '-'))
+            || split.next().is_some()
+        {
+            return Err("invalid characters in name, only alphanumeric, _ and - allowed");
+        }
         Ok(Self { name, namespace })
     }
 
@@ -1081,8 +1088,19 @@ fn test_package_name_parse() {
     assert_eq!(
         PackageName::parse("hello/test").unwrap(),
         PackageName {
-            namespace: "hello".to_string(),
+            namespace: Namespace::Named("hello".to_string()),
             name: "test".to_string()
         }
+    );
+    assert_eq!(
+        PackageName::parse("_/test").unwrap(),
+        PackageName {
+            namespace: Namespace::Underscore,
+            name: "test".to_string()
+        }
+    );
+    assert_eq!(
+        PackageName::parse("_/_/test").unwrap_err(),
+        "invalid characters in name, only alphanumeric, _ and - allowed",
     );
 }
