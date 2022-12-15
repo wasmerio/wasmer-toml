@@ -81,6 +81,7 @@ pub struct PackageName {
 pub enum PackageNameParseError {
     InvalidCharacterInName(char, String),
     NameTooLong(String),
+    InvalidName(String),
     NoSlashInName(String),
     NameNotPresent(String),
     NamespaceNotPresent(String),
@@ -92,6 +93,7 @@ impl fmt::Display for PackageNameParseError {
         match self {
             Self::InvalidCharacterInName(c, s) => write!(f, "invalid character {c:?} in name {s}"),
             Self::NameTooLong(s) => write!(f, "name too long: {} characters found, package names have a maximum length of {} characters", s.len(), MAX_NAME_LEN),
+            Self::InvalidName(s) => write!(f, "invalid name: cannot start or end with `-` or `_`: {s:?}"),
             Self::NoSlashInName(s) => write!(f, "no \"/\" in package name: {s}"),
             Self::NameNotPresent(s) => write!(f, "no name found in {s}"),
             Self::NamespaceNotPresent(s) => write!(f, "no namespace found in {s}"),
@@ -110,13 +112,23 @@ impl From<NamespaceParseError> for PackageNameParseError {
 pub enum NamespaceParseError {
     InvalidCharacterInNamespace(char, String),
     NamespaceTooLong(String),
+    InvalidNamespace(String),
+    EmptyNamespace,
 }
+
 impl fmt::Display for NamespaceParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::InvalidCharacterInNamespace(c, s) => {
                 write!(f, "invalid character {c:?} in namespace {s}")
             }
+            Self::InvalidNamespace(s) => {
+                write!(
+                    f,
+                    "invalid namespace, cannot start or end with `-` or `_`: {s:?}"
+                )
+            }
+            Self::EmptyNamespace => write!(f, "empty namespace"),
             Self::NamespaceTooLong(s) => write!(
                 f,
                 "namespace too long, found {} characters, maximum = {} characters",
@@ -136,9 +148,12 @@ pub enum Namespace {
 
 impl Namespace {
     pub fn parse(s: &str) -> Result<Self, NamespaceParseError> {
+        if s.is_empty() {
+            return Err(NamespaceParseError::EmptyNamespace);
+        }
         let invalid_char = s
             .chars()
-            .find(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'));
+            .find(|c| !(char::is_ascii_alphanumeric(c) || *c == '_' || *c == '-'));
         if let Some(c) = invalid_char {
             return Err(NamespaceParseError::InvalidCharacterInNamespace(
                 c,
@@ -148,7 +163,14 @@ impl Namespace {
         match s {
             "_" => Ok(Self::Underscore),
             other => {
-                if other.len() > MAX_NAMESPACE_LEN {
+                let invalid = other.starts_with('-')
+                    || other.ends_with('-')
+                    || other.starts_with('_')
+                    || other.ends_with('_');
+
+                if invalid {
+                    Err(NamespaceParseError::InvalidNamespace(s.to_string()))
+                } else if other.len() > MAX_NAMESPACE_LEN {
                     Err(NamespaceParseError::NamespaceTooLong(s.to_string()))
                 } else {
                     Ok(Self::Named(other.to_string()))
@@ -199,6 +221,16 @@ impl PackageName {
             .next()
             .ok_or_else(|| PackageNameParseError::NameNotPresent(s.to_string()))?
             .to_string();
+        if name.is_empty() {
+            return Err(PackageNameParseError::NameNotPresent(s.to_string()));
+        }
+        if name.starts_with('-')
+            || name.ends_with('-')
+            || name.starts_with('_')
+            || name.ends_with('_')
+        {
+            return Err(PackageNameParseError::InvalidName(s.to_string()));
+        }
         if name.len() > MAX_NAME_LEN {
             return Err(PackageNameParseError::NameTooLong(s.to_string()));
         }
@@ -210,7 +242,7 @@ impl PackageName {
         }
         let invalid_char = name
             .chars()
-            .find(|c| !(char::is_alphanumeric(*c) || *c == '_' || *c == '-'));
+            .find(|c| !(char::is_ascii_alphanumeric(c) || *c == '_' || *c == '-'));
         if let Some(c) = invalid_char {
             return Err(PackageNameParseError::InvalidCharacterInName(
                 c,
@@ -1173,6 +1205,115 @@ fn test_package_name_parse() {
     );
     assert_eq!(
         PackageName::parse("_/_/test").unwrap_err(),
-        PackageNameParseError::InvalidCharacterInName('/', "_/_/test".to_string()),
+        PackageNameParseError::InvalidName("_/_/test".to_string()),
+    );
+
+    assert_eq!(
+        PackageName::parse("namespace/package").unwrap(),
+        PackageName {
+            namespace: Namespace::Named("namespace".to_string()),
+            name: "package".to_string(),
+        }
+    );
+    assert_eq!(
+        PackageName::parse("name_space/pack_age").unwrap(),
+        PackageName {
+            namespace: Namespace::Named("name_space".to_string()),
+            name: "pack_age".to_string(),
+        }
+    );
+    assert_eq!(
+        PackageName::parse("name-space/pack-age").unwrap(),
+        PackageName {
+            namespace: Namespace::Named("name-space".to_string()),
+            name: "pack-age".to_string(),
+        }
+    );
+
+    assert_eq!(
+        PackageName::parse("_/package").unwrap(),
+        PackageName {
+            namespace: Namespace::Underscore,
+            name: "package".to_string(),
+        }
+    );
+
+    assert_eq!(
+        PackageName::parse("namespace/package/something-else").unwrap_err(),
+        PackageNameParseError::InvalidCharacterInName(
+            '/',
+            "namespace/package/something-else".to_string()
+        ),
+    );
+
+    assert_eq!(
+        PackageName::parse("name space/pack age").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidCharacterInNamespace(
+            ' ',
+            "name space".to_string()
+        )),
+    );
+
+    assert_eq!(
+        PackageName::parse("namespace/").unwrap_err(),
+        PackageNameParseError::NameNotPresent("namespace/".to_string()),
+    );
+    assert_eq!(
+        PackageName::parse("/package").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::EmptyNamespace),
+    );
+    assert_eq!(
+        PackageName::parse("namespace/_").unwrap_err(),
+        PackageNameParseError::InvalidName("namespace/_".to_string()),
+    );
+    assert_eq!(
+        PackageName::parse("_namespace/_package").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidNamespace(
+            "_namespace".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("namespace_/package_").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidNamespace(
+            "namespace_".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("-namespace/-package").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidNamespace(
+            "-namespace".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("namespace-/package-").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidNamespace(
+            "namespace-".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("namespace/package-").unwrap_err(),
+        PackageNameParseError::InvalidName("namespace/package-".to_string()),
+    );
+    assert_eq!(
+        PackageName::parse("http://namespace").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidCharacterInNamespace(
+            ':',
+            "http:".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("nàméspàcë/pàckàgê").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::InvalidCharacterInNamespace(
+            'à',
+            "nàméspàcë".to_string()
+        )),
+    );
+    assert_eq!(
+        PackageName::parse("").unwrap_err(),
+        PackageNameParseError::NoSlashInName("".to_string()),
+    );
+    assert_eq!(
+        PackageName::parse("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijz/abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijz").unwrap_err(),
+        PackageNameParseError::InvalidNamespace(NamespaceParseError::NamespaceTooLong("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijz".to_string())),
     );
 }
