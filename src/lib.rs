@@ -70,10 +70,52 @@ pub static README_PATHS: &[&str; 5] = &[
 
 pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PackageName {
+    pub namespace: String,
+    pub name: String,
+}
+
+impl PackageName {
+    pub fn parse(s: &str) -> Result<Self, &'static str> {
+        if !s.contains('/') {
+            return Err("no / in package name");
+        }
+        let mut split = s.split('/');
+        let name = split.next().ok_or("no name in package name")?.to_string();
+        let namespace = split
+            .next()
+            .ok_or("no namespace in package name")?
+            .to_string();
+        Ok(Self { name, namespace })
+    }
+}
+
+mod serde_package_name {
+    use super::PackageName;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(package: &PackageName, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        s.serialize_str(&format!("{}/{}", package.namespace, package.name))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<PackageName, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let buf = String::deserialize(deserializer)?;
+        PackageName::parse(&buf).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Describes a command for a wapm module
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Package {
-    pub name: String,
+    #[serde(with = "serde_package_name")]
+    pub name: PackageName,
     pub version: Version,
     pub description: String,
     pub license: Option<String>,
@@ -965,4 +1007,19 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
             })
         );
     }
+}
+
+#[test]
+fn test_package_name_parse() {
+    assert_eq!(
+        PackageName::parse("hello").unwrap_err(),
+        "no / in package name"
+    );
+    assert_eq!(
+        PackageName::parse("hello/test").unwrap(),
+        PackageName {
+            namespace: "hello".to_string(),
+            name: "test".to_string()
+        }
+    );
 }
