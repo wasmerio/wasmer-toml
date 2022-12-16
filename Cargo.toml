@@ -1,6 +1,6 @@
 [package]
 name = "wasmer-toml"
-version = "0.4.0"
+version = "0.4.1"
 description = "A parser for the wasmer.toml format used by Wasmer and WAPM"
 edition = "2021"
 license = "MIT"
