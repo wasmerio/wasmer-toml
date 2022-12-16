@@ -1,10 +1,10 @@
-# The `wapm.toml` Format
+# The `wasmer.toml` Format
 
 [![Continuous Integration](https://github.com/wasmerio/wapm-toml/actions/workflows/ci.yml/badge.svg)](https://github.com/wasmerio/wapm-toml/actions/workflows/ci.yml)
 
 ([API Docs](https://wasmerio.github.io/wapm-toml))
 
-A parser for the `wapm.toml` file used by [Wasmer][wasmer] and
+A parser for the `wasmer.toml` file used by [Wasmer][wasmer] and
 [the `wapm` CLI][cli].
 
 ## License

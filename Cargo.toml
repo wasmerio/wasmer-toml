@@ -1,12 +1,12 @@
 [package]
-name = "wapm-toml"
+name = "wasmer-toml"
 version = "0.4.0"
-description = "A parser for the wapm.toml format used by Wasmer and WAPM"
+description = "A parser for the wasmer.toml format used by Wasmer and WAPM"
 edition = "2021"
 license = "MIT"
 authors = ["The Wasmer Engineering Team <engineering@wasmer.io>"]
 homepage = "https://wasmer.io/"
-repository = "https://github.com/wasmerio/wapm-toml"
+repository = "https://github.com/wasmerio/wasmer-toml"
 keywords = ["wasm", "wapm", "wasmer", "toml"]
 categories = ["parser-implementations", "wasm"]
 
