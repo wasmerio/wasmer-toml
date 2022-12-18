@@ -1,4 +1,4 @@
-//! The Manifest file is where the core metadata of a wapm package lives
+//! The Manifest file is where the core metadata of a wasmer package lives
 
 use semver::Version;
 use serde::{de::Error as _, Deserialize, Serialize};
@@ -57,8 +57,8 @@ impl Default for Abi {
 }
 
 /// The name of the manifest file. This is hard-coded for now.
-pub static MANIFEST_FILE_NAME: &str = "wapm.toml";
-pub static PACKAGES_DIR_NAME: &str = "wapm_packages";
+pub static MANIFEST_FILE_NAME: &str = "wasmer.toml";
+pub static PACKAGES_DIR_NAME: &str = "wasmer_packages";
 
 pub static README_PATHS: &[&str; 5] = &[
     "README",
@@ -70,7 +70,7 @@ pub static README_PATHS: &[&str; 5] = &[
 
 pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
-/// Describes a command for a wapm module
+/// Describes a command for a wasmer module
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Package {
     pub name: String,
@@ -91,8 +91,8 @@ pub struct Package {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub disable_command_rename: bool,
-    /// Unlike, `disable-command-rename` which prevents `wapm run <Module name>`,
-    /// this flag enables the command rename of `wapm run <COMMAND_NAME>` into
+    /// Unlike, `disable-command-rename` which prevents `wasmer run <Module name>`,
+    /// this flag enables the command rename of `wasmer run <COMMAND_NAME>` into
     /// just `<COMMAND_NAME>`. This is useful for programs that need to inspect
     /// their `argv[0]` names and when the command name matches their executable
     /// name.
@@ -145,7 +145,7 @@ impl Command {
     }
 }
 
-/// Describes a command for a wapm module
+/// Describes a command for a wasmer module
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
                               // a CommandV2 as a CommandV1
@@ -417,7 +417,7 @@ impl WaiBindings {
         } = self;
 
         // Note: WAI files may import other WAI files, so we start with all
-        // WAI files mentioned in the wapm.toml then recursively add their
+        // WAI files mentioned in the wasmer.toml then recursively add their
         // imports.
 
         let initial_paths = exports
@@ -671,7 +671,7 @@ mod serialization_tests {
 
     #[test]
     fn get_manifest() {
-        let wapm_toml = toml! {
+        let wasmer_toml = toml! {
             [package]
             name = "test"
             version = "1.0.0"
@@ -679,7 +679,7 @@ mod serialization_tests {
             homepage = "test.com"
             description = "The best package."
         };
-        let manifest: Manifest = wapm_toml.try_into().unwrap();
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
         assert!(!manifest.package.disable_command_rename);
     }
 }
@@ -691,7 +691,7 @@ mod command_tests {
 
     #[test]
     fn get_commands() {
-        let wapm_toml = toml! {
+        let wasmer_toml = toml! {
             [package]
             name = "test"
             version = "1.0.0"
@@ -712,7 +712,7 @@ mod command_tests {
             module = "test"
             main_args = "$@"
         };
-        let manifest: Manifest = wapm_toml.try_into().unwrap();
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
         let commands = &manifest.command.unwrap();
         assert_eq!(2, commands.len());
     }
@@ -730,7 +730,7 @@ mod dependency_tests {
         let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
         let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
         let mut file = File::create(manifest_path).unwrap();
-        let wapm_toml = toml! {
+        let wasmer_toml = toml! {
             [package]
             name = "_/test"
             version = "1.0.0"
@@ -740,7 +740,7 @@ mod dependency_tests {
             source = "test.wasm"
             interfaces = {}
         };
-        let toml_string = toml::to_string(&wapm_toml).unwrap();
+        let toml_string = toml::to_string(&wasmer_toml).unwrap();
         file.write_all(toml_string.as_bytes()).unwrap();
         let mut manifest = Manifest::find_in_directory(tmp_dir).unwrap();
 
