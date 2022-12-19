@@ -7,7 +7,7 @@ on:
     - main
 
 env:
-  DEFAULT_CRATE_NAME: wapm_toml
+  DEFAULT_CRATE_NAME: wasmer_toml
 
 jobs:
   check:

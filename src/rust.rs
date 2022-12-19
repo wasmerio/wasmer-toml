@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct Wapm {
+pub struct Wasmer {
     pub namespace: String,
     pub package: Option<String>,
     pub wasmer_extra_flags: Option<String>,

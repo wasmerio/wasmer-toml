@@ -1,13 +1,13 @@
 [package]
-name = "wapm-toml"
-version = "0.4.0"
-description = "A parser for the wapm.toml format used by Wasmer and WAPM"
+name = "wasmer-toml"
+version = "0.4.1"
+description = "A parser for the wasmer.toml format used by Wasmer"
 edition = "2021"
 license = "MIT"
 authors = ["The Wasmer Engineering Team <engineering@wasmer.io>"]
 homepage = "https://wasmer.io/"
-repository = "https://github.com/wasmerio/wapm-toml"
-keywords = ["wasm", "wapm", "wasmer", "toml"]
+repository = "https://github.com/wasmerio/wasmer-toml"
+keywords = ["wasm", "wasmer", "toml"]
 categories = ["parser-implementations", "wasm"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
