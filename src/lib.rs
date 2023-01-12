@@ -1,5 +1,6 @@
 //! The Manifest file is where the core metadata of a wasmer package lives
 
+use indexmap::IndexMap;
 use semver::Version;
 use serde::{de::Error as _, Deserialize, Serialize};
 use std::collections::{hash_map::HashMap, BTreeSet};
@@ -123,7 +124,7 @@ impl Command {
         match self {
             Self::V1(c) => c.module.clone(),
             // TODO(felix): how to migrate to the new API?
-            Self::V2(_) => String::new(),
+            Self::V2(c) => c.module.clone(),
         }
     }
 
@@ -135,12 +136,33 @@ impl Command {
         }
     }
 
-    pub fn get_main_args(&self) -> Option<String> {
+    pub fn get_main_args(&self) -> Vec<String> {
         match self {
-            Self::V1(c) => c.main_args.clone(),
-            // TODO(felix): how to migrate to the new API?
-            // Self::V2(c) => serde_json::to_string(&c.annotations)
-            Self::V2(_) => None,
+            Self::V1(c) => c
+                .main_args
+                .as_deref()
+                .unwrap_or("")
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect(),
+            Self::V2(c) => {
+                let annotations = match c.annotations.as_ref() {
+                    Some(CommandAnnotations::Raw(s)) => s,
+                    _ => return Vec::new(),
+                };
+                let annotations = match annotations.get("wasi") {
+                    Some(toml::Value::Table(m)) => m,
+                    _ => return Vec::new(),
+                };
+                let annotations = match annotations.get("main_args") {
+                    Some(toml::Value::String(m)) => m.to_string(),
+                    _ => return Vec::new(),
+                };
+                annotations
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect()
+            }
         }
     }
 }
@@ -524,16 +546,56 @@ pub enum ImportsError {
 /// These are pairs of paths.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Manifest {
-    pub package: Package,
-    pub dependencies: Option<HashMap<String, String>>,
-    pub module: Option<Vec<Module>>,
-    pub command: Option<Vec<Command>>,
-    /// Of the form Guest -> Host path
-    pub fs: Option<HashMap<String, PathBuf>>,
     /// private data
     /// store the directory path of the manifest file for use later accessing relative path fields
     #[serde(skip)]
     pub base_directory_path: PathBuf,
+    pub package: Package,
+    pub dependencies: Option<HashMap<String, String>>,
+    /// Of the form Guest -> Host path
+    pub fs: Option<IndexMap<String, PathBuf>>,
+    pub module: Option<Vec<Module>>,
+    pub command: Option<Vec<Command>>,
+}
+
+#[test]
+fn test_to_string() {
+    Manifest {
+        package: Package {
+            name: "package/name".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
+            description: "test".to_string(),
+            license: None,
+            license_file: None,
+            readme: None,
+            repository: None,
+            homepage: None,
+            wasmer_extra_flags: None,
+            disable_command_rename: false,
+            rename_commands_to_raw_command_name: false,
+        },
+        dependencies: None,
+        module: Some(vec![Module {
+            name: "test".to_string(),
+            abi: Abi::Wasi,
+            bindings: None,
+            interfaces: None,
+            kind: Some("https://webc.org/kind/wasi".to_string()),
+            source: Path::new("test.wasm").to_path_buf(),
+        }]),
+        command: None, // Some(Vec::new()),
+        fs: Some(
+            vec![
+                ("a".to_string(), Path::new("/a").to_path_buf()),
+                ("b".to_string(), Path::new("/b").to_path_buf()),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        base_directory_path: Path::new("/").to_path_buf(),
+    }
+    .to_string()
+    .unwrap();
 }
 
 impl Manifest {
@@ -621,7 +683,17 @@ impl Manifest {
     }
 
     pub fn to_string(&self) -> anyhow::Result<String> {
-        Ok(toml::to_string(self)?)
+        let mut self_clone = self.clone();
+        if self_clone.command.clone().unwrap_or_default().is_empty() {
+            self_clone.command = None;
+        }
+        if self_clone.fs.clone().unwrap_or_default().is_empty() {
+            self_clone.fs = None;
+        }
+        if self_clone.module.clone().unwrap_or_default().is_empty() {
+            self_clone.module = None;
+        }
+        Ok(toml::to_string_pretty(&self_clone).unwrap())
     }
 
     pub fn manifest_path(&self) -> PathBuf {
