@@ -558,46 +558,6 @@ pub struct Manifest {
     pub command: Option<Vec<Command>>,
 }
 
-#[test]
-fn test_to_string() {
-    Manifest {
-        package: Package {
-            name: "package/name".to_string(),
-            version: Version::parse("1.0.0").unwrap(),
-            description: "test".to_string(),
-            license: None,
-            license_file: None,
-            readme: None,
-            repository: None,
-            homepage: None,
-            wasmer_extra_flags: None,
-            disable_command_rename: false,
-            rename_commands_to_raw_command_name: false,
-        },
-        dependencies: None,
-        module: Some(vec![Module {
-            name: "test".to_string(),
-            abi: Abi::Wasi,
-            bindings: None,
-            interfaces: None,
-            kind: Some("https://webc.org/kind/wasi".to_string()),
-            source: Path::new("test.wasm").to_path_buf(),
-        }]),
-        command: None, // Some(Vec::new()),
-        fs: Some(
-            vec![
-                ("a".to_string(), Path::new("/a").to_path_buf()),
-                ("b".to_string(), Path::new("/b").to_path_buf()),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        base_directory_path: Path::new("/").to_path_buf(),
-    }
-    .to_string()
-    .unwrap();
-}
-
 impl Manifest {
     pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(s)
@@ -844,6 +804,46 @@ mod manifest_tests {
     use serde::{de::DeserializeOwned, Deserialize};
 
     use super::*;
+
+    #[test]
+    fn test_to_string() {
+        Manifest {
+            package: Package {
+                name: "package/name".to_string(),
+                version: Version::parse("1.0.0").unwrap(),
+                description: "test".to_string(),
+                license: None,
+                license_file: None,
+                readme: None,
+                repository: None,
+                homepage: None,
+                wasmer_extra_flags: None,
+                disable_command_rename: false,
+                rename_commands_to_raw_command_name: false,
+            },
+            dependencies: None,
+            module: Some(vec![Module {
+                name: "test".to_string(),
+                abi: Abi::Wasi,
+                bindings: None,
+                interfaces: None,
+                kind: Some("https://webc.org/kind/wasi".to_string()),
+                source: Path::new("test.wasm").to_path_buf(),
+            }]),
+            command: None, // Some(Vec::new()),
+            fs: Some(
+                vec![
+                    ("a".to_string(), Path::new("/a").to_path_buf()),
+                    ("b".to_string(), Path::new("/b").to_path_buf()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            base_directory_path: Path::new("/").to_path_buf(),
+        }
+        .to_string()
+        .unwrap();
+    }
 
     #[test]
     fn interface_test() {
