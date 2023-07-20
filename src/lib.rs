@@ -88,32 +88,33 @@ pub struct Package {
     #[builder(setter(into))]
     pub description: String,
     /// A SPDX license specifier for this package.
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub license: Option<String>,
     /// The location of the license file, useful for non-standard licenses
     #[serde(rename = "license-file")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub license_file: Option<PathBuf>,
     /// The package's README file.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub readme: Option<PathBuf>,
     /// A URL pointing to the package's source code.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub repository: Option<String>,
     /// The website used as the package's homepage.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub homepage: Option<String>,
     #[serde(rename = "wasmer-extra-flags")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub wasmer_extra_flags: Option<String>,
     #[serde(
         rename = "disable-command-rename",
         default,
         skip_serializing_if = "std::ops::Not::not"
     )]
+    #[builder(default)]
     pub disable_command_rename: bool,
     /// Unlike, `disable-command-rename` which prevents `wasmer run <Module name>`,
     /// this flag enables the command rename of `wasmer run <COMMAND_NAME>` into
@@ -125,10 +126,11 @@ pub struct Package {
         default,
         skip_serializing_if = "std::ops::Not::not"
     )]
+    #[builder(default)]
     pub rename_commands_to_raw_command_name: bool,
     /// The name of the command that should be used by `wasmer run` by default.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option))]
+    #[builder(setter(into, strip_option), default)]
     pub entrypoint: Option<String>,
 }
 
@@ -1225,5 +1227,16 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
                 module: "this-doesnt-exist".to_string()
             }
         );
+    }
+
+    #[test]
+    fn use_builder_api_to_create_simplest_manifest() {
+        let package =
+            Package::builder("my/package", "1.0.0".parse().unwrap(), "My awesome package")
+                .build()
+                .unwrap();
+        let manifest = Manifest::builder(package).build().unwrap();
+
+        manifest.validate().unwrap();
     }
 }
