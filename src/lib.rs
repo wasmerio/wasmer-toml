@@ -16,6 +16,7 @@ use thiserror::Error;
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
 /// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Abi {
     #[serde(rename = "emscripten")]
     Emscripten,
@@ -75,22 +76,38 @@ pub static README_PATHS: &[&str; 5] = &[
 pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
 /// Metadata about the package.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, derive_builder::Builder)]
+#[non_exhaustive]
 pub struct Package {
+    /// The package's name in the form `namespace/name`.
+    #[builder(setter(into))]
     pub name: String,
+    /// The package's version number.
     pub version: Version,
+    /// A brief description of the package.
+    #[builder(setter(into))]
     pub description: String,
+    /// A SPDX license specifier for this package.
+    #[builder(setter(into, strip_option))]
     pub license: Option<String>,
     /// The location of the license file, useful for non-standard licenses
     #[serde(rename = "license-file")]
+    #[builder(setter(into, strip_option))]
     pub license_file: Option<PathBuf>,
+    /// The package's README file.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(setter(into, strip_option))]
     pub readme: Option<PathBuf>,
+    /// A URL pointing to the package's source code.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(setter(into, strip_option))]
     pub repository: Option<String>,
+    /// The website used as the package's homepage.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(setter(into, strip_option))]
     pub homepage: Option<String>,
     #[serde(rename = "wasmer-extra-flags")]
+    #[builder(setter(into, strip_option))]
     pub wasmer_extra_flags: Option<String>,
     #[serde(
         rename = "disable-command-rename",
@@ -111,7 +128,27 @@ pub struct Package {
     pub rename_commands_to_raw_command_name: bool,
     /// The name of the command that should be used by `wasmer run` by default.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(setter(into, strip_option))]
     pub entrypoint: Option<String>,
+}
+
+impl Package {
+    /// Create a [`PackageBuilder`] populated with all mandatory fields.
+    pub fn builder(
+        name: impl Into<String>,
+        version: Version,
+        description: impl Into<String>,
+    ) -> PackageBuilder {
+        PackageBuilder::new(name, version, description)
+    }
+}
+
+impl PackageBuilder {
+    pub fn new(name: impl Into<String>, version: Version, description: impl Into<String>) -> Self {
+        let mut builder = PackageBuilder::default();
+        builder.name(name).version(version).description(description);
+        builder
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -524,6 +561,7 @@ fn get_imported_wai_files(path: &Path) -> Result<Vec<PathBuf>, ImportsError> {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ImportsError {
     #[error(
         "The \"{}\" mentioned in the manifest doesn't exist",
@@ -550,38 +588,38 @@ pub enum ImportsError {
 }
 
 /// The manifest represents the file used to describe a Wasm package.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, derive_builder::Builder)]
+#[non_exhaustive]
 pub struct Manifest {
     /// Metadata about the package itself.
     pub package: Package,
     /// The package's dependencies.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[builder(default)]
     pub dependencies: HashMap<String, VersionReq>,
     /// The mappings used when making bundled assets available to WebAssembly
     /// instances, in the form guest -> host.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    #[builder(default)]
     pub fs: IndexMap<String, PathBuf>,
     /// WebAssembly modules to be published.
     #[serde(default, rename = "module", skip_serializing_if = "Vec::is_empty")]
+    #[builder(default)]
     pub modules: Vec<Module>,
     /// Commands the package makes available to users.
     #[serde(default, rename = "command", skip_serializing_if = "Vec::is_empty")]
+    #[builder(default)]
     pub commands: Vec<Command>,
 }
 
 impl Manifest {
-    pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str(s)
+    /// Create a [`ManifestBuilder`] populated with all mandatory fields.
+    pub fn builder(package: Package) -> ManifestBuilder {
+        ManifestBuilder::new(package)
     }
 
-    fn locate_file(path: &Path, candidates: &[&str]) -> Option<PathBuf> {
-        for filename in candidates {
-            let path_buf = path.join(filename);
-            if path_buf.exists() {
-                return Some(filename.into());
-            }
-        }
-        None
+    pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(s)
     }
 
     /// Construct a manifest by searching in the specified directory for a manifest file
@@ -595,11 +633,13 @@ impl Manifest {
         let contents = std::fs::read_to_string(&manifest_path_buf)
             .map_err(|_e| ManifestError::MissingManifest(manifest_path_buf))?;
         let mut manifest: Self = toml::from_str(contents.as_str())?;
+
         if manifest.package.readme.is_none() {
-            manifest.package.readme = Self::locate_file(path, &README_PATHS[..]);
+            manifest.package.readme = locate_file(path, README_PATHS);
         }
+
         if manifest.package.license_file.is_none() {
-            manifest.package.license_file = Self::locate_file(path, &LICENSE_PATHS[..]);
+            manifest.package.license_file = locate_file(path, LICENSE_PATHS);
         }
         manifest.validate()?;
 
@@ -678,6 +718,53 @@ impl Manifest {
         let manifest = toml::to_string_pretty(self)?;
         std::fs::write(path, manifest).map_err(ManifestError::CannotSaveManifest)?;
         Ok(())
+    }
+}
+
+fn locate_file(path: &Path, candidates: &[&str]) -> Option<PathBuf> {
+    for filename in candidates {
+        let path_buf = path.join(filename);
+        if path_buf.exists() {
+            return Some(filename.into());
+        }
+    }
+    None
+}
+
+impl ManifestBuilder {
+    pub fn new(package: Package) -> Self {
+        let mut builder = ManifestBuilder::default();
+        builder.package(package);
+        builder
+    }
+
+    /// Include a directory on the host in the package and make it available to
+    /// a WebAssembly guest at the `guest` path.
+    pub fn map_fs(&mut self, guest: impl Into<String>, host: impl Into<PathBuf>) -> &mut Self {
+        self.fs
+            .get_or_insert_with(IndexMap::new)
+            .insert(guest.into(), host.into());
+        self
+    }
+
+    /// Add a dependency to the [`Manifest`].
+    pub fn with_dependency(&mut self, name: impl Into<String>, version: VersionReq) -> &mut Self {
+        self.dependencies
+            .get_or_insert_with(HashMap::new)
+            .insert(name.into(), version);
+        self
+    }
+
+    /// Add a [`Module`] to the [`Manifest`].
+    pub fn with_module(&mut self, module: Module) -> &mut Self {
+        self.modules.get_or_insert_with(Vec::new).push(module);
+        self
+    }
+
+    /// Add a [`Command`] to the [`Manifest`].
+    pub fn with_command(&mut self, command: Command) -> &mut Self {
+        self.commands.get_or_insert_with(Vec::new).push(command);
+        self
     }
 }
 
