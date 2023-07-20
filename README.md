@@ -42,6 +42,7 @@ This project is licensed under the MIT license ([LICENSE](./LICENSE) or
 It is recommended to always use [`cargo crev`][crev] to verify the
 trustworthiness of each of your dependencies, including this one.
 
+[conv]: https://www.conventionalcommits.org/en/v1.0.0/
 [crev]: https://github.com/crev-dev/cargo-crev
 [release-please]: https://github.com/googleapis/release-please
 [wasmer]: https://wasmer.io/
