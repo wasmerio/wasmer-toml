@@ -3,7 +3,7 @@
 pub mod rust;
 
 use std::{
-    collections::{hash_map::HashMap, BTreeSet},
+    collections::{hash_map::HashMap, BTreeMap, BTreeSet},
     fmt,
     path::{Path, PathBuf},
 };
@@ -607,7 +607,7 @@ impl Manifest {
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let mut modules = HashMap::new();
+        let mut modules = BTreeMap::new();
 
         for module in &self.modules {
             let is_duplicate = modules.insert(&module.name, module).is_some();
@@ -619,7 +619,7 @@ impl Manifest {
             }
         }
 
-        let mut commands = HashMap::new();
+        let mut commands = BTreeMap::new();
 
         for command in &self.commands {
             let is_duplicate = commands.insert(command.get_name(), command).is_some();
@@ -694,7 +694,7 @@ pub enum ManifestError {
     ValidationError(#[from] ValidationError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, PartialEq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
     #[error(
@@ -1030,5 +1030,113 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
         let dependency_version_2: VersionReq = "0.2.0".parse().unwrap();
         manifest.add_dependency(dependency_name_2.to_string(), dependency_version_2);
         assert_eq!(2, manifest.dependencies.len());
+    }
+
+    #[test]
+    fn duplicate_modules_are_invalid() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::DuplicateModule {
+                name: "test".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn duplicate_commands_are_invalid() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            abi = "wasi"
+            [[command]]
+            name = "cmd"
+            module = "test"
+            [[command]]
+            name = "cmd"
+            module = "test"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::DuplicateCommand {
+                name: "cmd".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn nonexistent_entrypoint() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            entrypoint = "this-doesnt-exist"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            abi = "wasi"
+            [[command]]
+            name = "cmd"
+            module = "test"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::InvalidEntrypoint {
+                entrypoint: "this-doesnt-exist".to_string(),
+                available_commands: vec!["cmd".to_string()]
+            }
+        );
+    }
+    #[test]
+    fn command_with_nonexistent_module() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[command]]
+            name = "cmd"
+            module = "this-doesnt-exist"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::MissingModuleForCommand {
+                command: "cmd".to_string(),
+                module: "this-doesnt-exist".to_string()
+            }
+        );
     }
 }
