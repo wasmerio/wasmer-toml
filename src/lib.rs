@@ -1,14 +1,17 @@
 //! The Manifest file is where the core metadata of a wasmer package lives
+//!
+pub mod rust;
+
+use std::{
+    collections::{hash_map::HashMap, BTreeMap, BTreeSet},
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use indexmap::IndexMap;
-use semver::Version;
+use semver::{Version, VersionReq};
 use serde::{de::Error as _, Deserialize, Serialize};
-use std::collections::{hash_map::HashMap, BTreeSet};
-use std::fmt;
-use std::path::{Path, PathBuf};
 use thiserror::Error;
-
-pub mod rust;
 
 /// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
 /// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
@@ -71,7 +74,7 @@ pub static README_PATHS: &[&str; 5] = &[
 
 pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
-/// Describes a command for a wasmer module
+/// Metadata about the package.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Package {
     pub name: String,
@@ -81,8 +84,11 @@ pub struct Package {
     /// The location of the license file, useful for non-standard licenses
     #[serde(rename = "license-file")]
     pub license_file: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub readme: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
     #[serde(rename = "wasmer-extra-flags")]
     pub wasmer_extra_flags: Option<String>,
@@ -103,6 +109,9 @@ pub struct Package {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub rename_commands_to_raw_command_name: bool,
+    /// The name of the command that should be used by `wasmer run` by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -326,12 +335,17 @@ pub enum FileKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Module {
+    /// The name used to refer to this module.
     pub name: String,
+    /// The location of the module file on disk, relative to the manifest
+    /// directory.
     pub source: PathBuf,
+    /// The ABI this module satisfies.
     #[serde(default = "Abi::default", skip_serializing_if = "Abi::is_none")]
     pub abi: Abi,
     #[serde(default)]
     pub kind: Option<String>,
+    /// WebAssembly interfaces this module requires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interfaces: Option<HashMap<String, String>>,
     pub bindings: Option<Bindings>,
@@ -536,26 +550,23 @@ pub enum ImportsError {
 }
 
 /// The manifest represents the file used to describe a Wasm package.
-///
-/// The `module` field represents the wasm file to be published.
-///
-/// The `source` is used to create bundles with the `fs` section.
-///
-/// The `fs` section represents fs assets that will be made available to the
-/// program relative to its starting current directory (there may be issues with WASI).
-/// These are pairs of paths.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Manifest {
-    /// private data
-    /// store the directory path of the manifest file for use later accessing relative path fields
-    #[serde(skip)]
-    pub base_directory_path: PathBuf,
+    /// Metadata about the package itself.
     pub package: Package,
-    pub dependencies: Option<HashMap<String, String>>,
-    /// Of the form Guest -> Host path
-    pub fs: Option<IndexMap<String, PathBuf>>,
-    pub module: Option<Vec<Module>>,
-    pub command: Option<Vec<Command>>,
+    /// The package's dependencies.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub dependencies: HashMap<String, VersionReq>,
+    /// The mappings used when making bundled assets available to WebAssembly
+    /// instances, in the form guest -> host.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub fs: IndexMap<String, PathBuf>,
+    /// WebAssembly modules to be published.
+    #[serde(default, rename = "module", skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<Module>,
+    /// Commands the package makes available to users.
+    #[serde(default, rename = "command", skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<Command>,
 }
 
 impl Manifest {
@@ -575,233 +586,140 @@ impl Manifest {
 
     /// Construct a manifest by searching in the specified directory for a manifest file
     pub fn find_in_directory<T: AsRef<Path>>(path: T) -> Result<Self, ManifestError> {
-        if !path.as_ref().is_dir() {
-            return Err(ManifestError::MissingManifest(
-                path.as_ref().to_string_lossy().to_string(),
-            ));
+        let path = path.as_ref();
+
+        if !path.is_dir() {
+            return Err(ManifestError::MissingManifest(path.to_path_buf()));
         }
-        let manifest_path_buf = path.as_ref().join(MANIFEST_FILE_NAME);
-        let contents = std::fs::read_to_string(&manifest_path_buf).map_err(|_e| {
-            ManifestError::MissingManifest(manifest_path_buf.to_string_lossy().to_string())
-        })?;
-        let mut manifest: Self = toml::from_str(contents.as_str())
-            .map_err(|e| ManifestError::TomlParseError(e.to_string()))?;
+        let manifest_path_buf = path.join(MANIFEST_FILE_NAME);
+        let contents = std::fs::read_to_string(&manifest_path_buf)
+            .map_err(|_e| ManifestError::MissingManifest(manifest_path_buf))?;
+        let mut manifest: Self = toml::from_str(contents.as_str())?;
         if manifest.package.readme.is_none() {
-            manifest.package.readme = Self::locate_file(path.as_ref(), &README_PATHS[..]);
+            manifest.package.readme = Self::locate_file(path, &README_PATHS[..]);
         }
         if manifest.package.license_file.is_none() {
-            manifest.package.license_file = Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
+            manifest.package.license_file = Self::locate_file(path, &LICENSE_PATHS[..]);
         }
         manifest.validate()?;
+
         Ok(manifest)
     }
 
-    pub fn validate(&self) -> Result<(), ManifestError> {
-        let module_map = self
-            .module
-            .as_ref()
-            .map(|modules| {
-                modules
-                    .iter()
-                    .map(|module| (module.name.clone(), module.clone()))
-                    .collect::<HashMap<String, Module>>()
-            })
-            .unwrap_or_default();
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let mut modules = BTreeMap::new();
 
-        if let Some(ref commands) = self.command {
-            for command in commands {
-                if let Some(module) = module_map.get(&command.get_module()) {
-                    if module.abi == Abi::None && module.interfaces.is_none() {
-                        return Err(ManifestError::ValidationError(ValidationError::MissingABI(
-                            command.get_name(),
-                            module.name.clone(),
-                        )));
-                    }
-                } else {
-                    return Err(ManifestError::ValidationError(
-                        ValidationError::MissingModuleForCommand(
-                            command.get_name(),
-                            command.get_module(),
-                        ),
-                    ));
-                }
+        for module in &self.modules {
+            let is_duplicate = modules.insert(&module.name, module).is_some();
+
+            if is_duplicate {
+                return Err(ValidationError::DuplicateModule {
+                    name: module.name.clone(),
+                });
             }
         }
+
+        let mut commands = BTreeMap::new();
+
+        for command in &self.commands {
+            let is_duplicate = commands.insert(command.get_name(), command).is_some();
+
+            if is_duplicate {
+                return Err(ValidationError::DuplicateCommand {
+                    name: command.get_name(),
+                });
+            }
+
+            if let Some(module) = modules.get(&command.get_module()) {
+                if module.abi == Abi::None && module.interfaces.is_none() {
+                    return Err(ValidationError::MissingABI {
+                        command: command.get_name(),
+                        module: module.name.clone(),
+                    });
+                }
+            } else {
+                return Err(ValidationError::MissingModuleForCommand {
+                    command: command.get_name(),
+                    module: command.get_module(),
+                });
+            }
+        }
+
+        if let Some(entrypoint) = &self.package.entrypoint {
+            if !commands.contains_key(entrypoint) {
+                return Err(ValidationError::InvalidEntrypoint {
+                    entrypoint: entrypoint.clone(),
+                    available_commands: commands.keys().cloned().collect(),
+                });
+            }
+        }
+
         Ok(())
     }
 
     /// add a dependency
-    pub fn add_dependency(&mut self, dependency_name: String, dependency_version: String) {
-        let dependencies = self.dependencies.get_or_insert(Default::default());
-        dependencies.insert(dependency_name, dependency_version);
+    pub fn add_dependency(&mut self, dependency_name: String, dependency_version: VersionReq) {
+        self.dependencies
+            .insert(dependency_name, dependency_version);
     }
 
     /// remove dependency by package name
-    pub fn remove_dependency(&mut self, dependency_name: &str) -> Option<String> {
-        let dependencies = self.dependencies.get_or_insert(Default::default());
-        dependencies.remove(dependency_name)
+    pub fn remove_dependency(&mut self, dependency_name: &str) -> Option<VersionReq> {
+        self.dependencies.remove(dependency_name)
     }
 
     pub fn to_string(&self) -> anyhow::Result<String> {
-        let mut self_clone = self.clone();
-        if self_clone.command.clone().unwrap_or_default().is_empty() {
-            self_clone.command = None;
-        }
-        if self_clone.fs.clone().unwrap_or_default().is_empty() {
-            self_clone.fs = None;
-        }
-        if self_clone.module.clone().unwrap_or_default().is_empty() {
-            self_clone.module = None;
-        }
-        Ok(toml::to_string_pretty(&self_clone).unwrap())
-    }
-
-    pub fn manifest_path(&self) -> PathBuf {
-        self.base_directory_path.join(MANIFEST_FILE_NAME)
+        let repr = toml::to_string_pretty(&self)?;
+        Ok(repr)
     }
 
     /// Write the manifest to permanent storage
-    pub fn save(&self) -> anyhow::Result<()> {
-        let manifest_string = self.to_string()?;
-        let manifest_path = self.manifest_path();
-        std::fs::write(manifest_path, manifest_string)
-            .map_err(|e| ManifestError::CannotSaveManifest(e.to_string()))?;
+    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let manifest = toml::to_string_pretty(self)?;
+        std::fs::write(path, manifest).map_err(ManifestError::CannotSaveManifest)?;
         Ok(())
     }
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ManifestError {
-    #[error("Manifest file not found at {0}")]
-    MissingManifest(String),
+    #[error("Manifest file not found at \"{}\"", _0.display())]
+    MissingManifest(PathBuf),
     #[error("Could not save manifest file: {0}.")]
-    CannotSaveManifest(String),
+    CannotSaveManifest(#[source] std::io::Error),
     #[error("Could not parse manifest because {0}.")]
-    TomlParseError(String),
-    #[error("Dependency version must be a string. Package name: {0}.")]
-    DependencyVersionMustBeString(String),
-    #[error("Package must have version that follows semantic versioning. {0}")]
-    SemVerError(String),
-    #[error("There was an error validating the manifest: {0}")]
-    ValidationError(ValidationError),
+    TomlParseError(#[from] toml::de::Error),
+    #[error("There was an error validating the manifest")]
+    ValidationError(#[from] ValidationError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, PartialEq, Error)]
+#[non_exhaustive]
 pub enum ValidationError {
     #[error(
-        "missing ABI field on module {0} used by command {1}; an ABI of `wasi` or `emscripten` is required",
+        "missing ABI field on module, \"{module}\", used by command, \"{command}\"; an ABI of `wasi` or `emscripten` is required",
     )]
-    MissingABI(String, String),
-    #[error("missing module {0} in manifest used by command {1}")]
-    MissingModuleForCommand(String, String),
+    MissingABI { command: String, module: String },
+    #[error("missing module, \"{module}\", in manifest used by command, \"{command}\"")]
+    MissingModuleForCommand { command: String, module: String },
+    #[error("The entrypoint, \"{entrypoint}\", isn't a valid command (commands: {})", available_commands.join(", "))]
+    InvalidEntrypoint {
+        entrypoint: String,
+        available_commands: Vec<String>,
+    },
+    #[error("Duplicate module, \"{name}\"")]
+    DuplicateModule { name: String },
+    #[error("Duplicate command, \"{name}\"")]
+    DuplicateCommand { name: String },
 }
 
 #[cfg(test)]
-mod serialization_tests {
-    use super::*;
-    use toml::toml;
-
-    #[test]
-    fn get_manifest() {
-        let wasmer_toml = toml! {
-            [package]
-            name = "test"
-            version = "1.0.0"
-            repository = "test.git"
-            homepage = "test.com"
-            description = "The best package."
-        };
-        let manifest: Manifest = wasmer_toml.try_into().unwrap();
-        assert!(!manifest.package.disable_command_rename);
-    }
-}
-
-#[cfg(test)]
-mod command_tests {
-    use super::*;
-    use toml::toml;
-
-    #[test]
-    fn get_commands() {
-        let wasmer_toml = toml! {
-            [package]
-            name = "test"
-            version = "1.0.0"
-            repository = "test.git"
-            homepage = "test.com"
-            description = "The best package."
-            [[module]]
-            name = "test-pkg"
-            module = "target.wasm"
-            source = "source.wasm"
-            description = "description"
-            interfaces = {"wasi" = "0.0.0-unstable"}
-            [[command]]
-            name = "foo"
-            module = "test"
-            [[command]]
-            name = "baz"
-            module = "test"
-            main_args = "$@"
-        };
-        let manifest: Manifest = wasmer_toml.try_into().unwrap();
-        let commands = &manifest.command.unwrap();
-        assert_eq!(2, commands.len());
-    }
-}
-
-#[cfg(test)]
-mod dependency_tests {
-    use super::*;
-    use std::{fs::File, io::Write};
-    use toml::toml;
-
-    #[test]
-    fn add_new_dependency() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
-        let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
-        let mut file = File::create(manifest_path).unwrap();
-        let wasmer_toml = toml! {
-            [package]
-            name = "_/test"
-            version = "1.0.0"
-            description = "description"
-            [[module]]
-            name = "test"
-            source = "test.wasm"
-            interfaces = {}
-        };
-        let toml_string = toml::to_string(&wasmer_toml).unwrap();
-        file.write_all(toml_string.as_bytes()).unwrap();
-        let mut manifest = Manifest::find_in_directory(tmp_dir).unwrap();
-
-        let dependency_name = "dep_pkg";
-        let dependency_version = semver::Version::new(0, 1, 0);
-
-        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
-        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
-
-        // adding the same dependency twice changes nothing
-        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
-        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
-
-        // adding a second different dependency will increase the count
-        let dependency_name_2 = "dep_pkg_2";
-        let dependency_version_2 = semver::Version::new(0, 2, 0);
-        manifest.add_dependency(
-            dependency_name_2.to_string(),
-            dependency_version_2.to_string(),
-        );
-        assert_eq!(2, manifest.dependencies.as_ref().unwrap().len());
-    }
-}
-
-#[cfg(test)]
-mod manifest_tests {
+mod tests {
     use std::fmt::Debug;
 
     use serde::{de::DeserializeOwned, Deserialize};
+    use toml::toml;
 
     use super::*;
 
@@ -820,26 +738,24 @@ mod manifest_tests {
                 wasmer_extra_flags: None,
                 disable_command_rename: false,
                 rename_commands_to_raw_command_name: false,
+                entrypoint: None,
             },
-            dependencies: None,
-            module: Some(vec![Module {
+            dependencies: HashMap::new(),
+            modules: vec![Module {
                 name: "test".to_string(),
                 abi: Abi::Wasi,
                 bindings: None,
                 interfaces: None,
                 kind: Some("https://webc.org/kind/wasi".to_string()),
                 source: Path::new("test.wasm").to_path_buf(),
-            }]),
-            command: None, // Some(Vec::new()),
-            fs: Some(
-                vec![
-                    ("a".to_string(), Path::new("/a").to_path_buf()),
-                    ("b".to_string(), Path::new("/b").to_path_buf()),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-            base_directory_path: Path::new("/").to_path_buf(),
+            }],
+            commands: Vec::new(),
+            fs: vec![
+                ("a".to_string(), Path::new("/a").to_path_buf()),
+                ("b".to_string(), Path::new("/b").to_path_buf()),
+            ]
+            .into_iter()
+            .collect(),
         }
         .to_string()
         .unwrap();
@@ -869,7 +785,7 @@ name = "command"
 module = "mod"
 "#;
         let manifest: Manifest = Manifest::parse(manifest_str).unwrap();
-        let modules = manifest.module.as_deref().unwrap();
+        let modules = &manifest.modules;
         assert_eq!(
             modules[0].interfaces.as_ref().unwrap().get("wasi"),
             Some(&"0.0.0-unstable".to_string())
@@ -893,7 +809,7 @@ module = "mod"
 
     #[test]
     fn parse_wit_bindings() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wit-bindgen = "0.1.0", wit-exports = "./file.wit" }
@@ -913,7 +829,7 @@ module = "mod"
 
     #[test]
     fn parse_wai_bindings() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wai-version = "0.1.0", exports = "./file.wai", imports = ["a.wai", "../b.wai"] }
@@ -947,7 +863,7 @@ module = "mod"
 
     #[test]
     fn imports_and_exports_are_optional_with_wai() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wai-version = "0.1.0" }
@@ -968,7 +884,7 @@ module = "mod"
 
     #[test]
     fn ambiguous_bindings_table() {
-        let table = toml::toml! {
+        let table = toml! {
             wai-version = "0.2.0"
             wit-bindgen = "0.1.0"
         };
@@ -983,7 +899,7 @@ module = "mod"
 
     #[test]
     fn bindings_table_that_is_neither_wit_nor_wai() {
-        let table = toml::toml! {
+        let table = toml! {
             wai-bindgen = "lol, this should have been wai-version"
             exports = "./file.wai"
         };
@@ -1022,7 +938,7 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
 
         let manifest: Manifest = toml::from_str(src).unwrap();
 
-        let commands = &manifest.command.as_deref().unwrap();
+        let commands = &manifest.commands;
         assert_eq!(commands.len(), 1);
         assert_eq!(
             commands[0],
@@ -1035,6 +951,192 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
                     kind: FileKind::Yaml,
                 }))
             })
+        );
+    }
+
+    #[test]
+    fn get_manifest() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "test"
+            version = "1.0.0"
+            repository = "test.git"
+            homepage = "test.com"
+            description = "The best package."
+        };
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
+        assert!(!manifest.package.disable_command_rename);
+    }
+
+    #[test]
+    fn get_commands() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "test"
+            version = "1.0.0"
+            repository = "test.git"
+            homepage = "test.com"
+            description = "The best package."
+            [[module]]
+            name = "test-pkg"
+            module = "target.wasm"
+            source = "source.wasm"
+            description = "description"
+            interfaces = {"wasi" = "0.0.0-unstable"}
+            [[command]]
+            name = "foo"
+            module = "test"
+            [[command]]
+            name = "baz"
+            module = "test"
+            main_args = "$@"
+        };
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
+        let commands = &manifest.commands;
+        assert_eq!(2, commands.len());
+    }
+
+    #[test]
+    fn add_new_dependency() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
+        let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
+        let wasmer_toml = toml! {
+            [package]
+            name = "_/test"
+            version = "1.0.0"
+            description = "description"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            interfaces = {}
+        };
+        let toml_string = toml::to_string(&wasmer_toml).unwrap();
+        std::fs::write(manifest_path, toml_string).unwrap();
+        let mut manifest = Manifest::find_in_directory(tmp_dir).unwrap();
+
+        let dependency_name = "dep_pkg";
+        let dependency_version: VersionReq = "0.1.0".parse().unwrap();
+
+        manifest.add_dependency(dependency_name.to_string(), dependency_version.clone());
+        assert_eq!(1, manifest.dependencies.len());
+
+        // adding the same dependency twice changes nothing
+        manifest.add_dependency(dependency_name.to_string(), dependency_version);
+        assert_eq!(1, manifest.dependencies.len());
+
+        // adding a second different dependency will increase the count
+        let dependency_name_2 = "dep_pkg_2";
+        let dependency_version_2: VersionReq = "0.2.0".parse().unwrap();
+        manifest.add_dependency(dependency_name_2.to_string(), dependency_version_2);
+        assert_eq!(2, manifest.dependencies.len());
+    }
+
+    #[test]
+    fn duplicate_modules_are_invalid() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::DuplicateModule {
+                name: "test".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn duplicate_commands_are_invalid() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            abi = "wasi"
+            [[command]]
+            name = "cmd"
+            module = "test"
+            [[command]]
+            name = "cmd"
+            module = "test"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::DuplicateCommand {
+                name: "cmd".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn nonexistent_entrypoint() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            entrypoint = "this-doesnt-exist"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            abi = "wasi"
+            [[command]]
+            name = "cmd"
+            module = "test"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::InvalidEntrypoint {
+                entrypoint: "this-doesnt-exist".to_string(),
+                available_commands: vec!["cmd".to_string()]
+            }
+        );
+    }
+    #[test]
+    fn command_with_nonexistent_module() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[command]]
+            name = "cmd"
+            module = "this-doesnt-exist"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::MissingModuleForCommand {
+                command: "cmd".to_string(),
+                module: "this-doesnt-exist".to_string()
+            }
         );
     }
 }
