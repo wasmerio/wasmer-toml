@@ -586,22 +586,20 @@ impl Manifest {
 
     /// Construct a manifest by searching in the specified directory for a manifest file
     pub fn find_in_directory<T: AsRef<Path>>(path: T) -> Result<Self, ManifestError> {
-        if !path.as_ref().is_dir() {
-            return Err(ManifestError::MissingManifest(
-                path.as_ref().to_string_lossy().to_string(),
-            ));
+        let path = path.as_ref();
+
+        if !path.is_dir() {
+            return Err(ManifestError::MissingManifest(path.to_path_buf()));
         }
-        let manifest_path_buf = path.as_ref().join(MANIFEST_FILE_NAME);
-        let contents = std::fs::read_to_string(&manifest_path_buf).map_err(|_e| {
-            ManifestError::MissingManifest(manifest_path_buf.to_string_lossy().to_string())
-        })?;
-        let mut manifest: Self = toml::from_str(contents.as_str())
-            .map_err(|e| ManifestError::TomlParseError(e.to_string()))?;
+        let manifest_path_buf = path.join(MANIFEST_FILE_NAME);
+        let contents = std::fs::read_to_string(&manifest_path_buf)
+            .map_err(|_e| ManifestError::MissingManifest(manifest_path_buf))?;
+        let mut manifest: Self = toml::from_str(contents.as_str())?;
         if manifest.package.readme.is_none() {
-            manifest.package.readme = Self::locate_file(path.as_ref(), &README_PATHS[..]);
+            manifest.package.readme = Self::locate_file(path, &README_PATHS[..]);
         }
         if manifest.package.license_file.is_none() {
-            manifest.package.license_file = Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
+            manifest.package.license_file = Self::locate_file(path, &LICENSE_PATHS[..]);
         }
         manifest.validate()?;
 
@@ -634,16 +632,16 @@ impl Manifest {
 
             if let Some(module) = modules.get(&command.get_module()) {
                 if module.abi == Abi::None && module.interfaces.is_none() {
-                    return Err(ValidationError::MissingABI(
-                        command.get_name(),
-                        module.name.clone(),
-                    ));
+                    return Err(ValidationError::MissingABI {
+                        command: command.get_name(),
+                        module: module.name.clone(),
+                    });
                 }
             } else {
-                return Err(ValidationError::MissingModuleForCommand(
-                    command.get_name(),
-                    command.get_module(),
-                ));
+                return Err(ValidationError::MissingModuleForCommand {
+                    command: command.get_name(),
+                    module: command.get_module(),
+                });
             }
         }
 
@@ -678,36 +676,33 @@ impl Manifest {
     /// Write the manifest to permanent storage
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let manifest = toml::to_string_pretty(self)?;
-        std::fs::write(path, manifest)
-            .map_err(|e| ManifestError::CannotSaveManifest(e.to_string()))?;
+        std::fs::write(path, manifest).map_err(ManifestError::CannotSaveManifest)?;
         Ok(())
     }
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ManifestError {
-    #[error("Manifest file not found at {0}")]
-    MissingManifest(String),
+    #[error("Manifest file not found at \"{}\"", _0.display())]
+    MissingManifest(PathBuf),
     #[error("Could not save manifest file: {0}.")]
-    CannotSaveManifest(String),
+    CannotSaveManifest(#[source] std::io::Error),
     #[error("Could not parse manifest because {0}.")]
-    TomlParseError(String),
-    #[error("Dependency version must be a string. Package name: {0}.")]
-    DependencyVersionMustBeString(String),
-    #[error("Package must have version that follows semantic versioning. {0}")]
-    SemVerError(String),
+    TomlParseError(#[from] toml::de::Error),
     #[error("There was an error validating the manifest")]
     ValidationError(#[from] ValidationError),
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ValidationError {
     #[error(
-        "missing ABI field on module {0} used by command {1}; an ABI of `wasi` or `emscripten` is required",
+        "missing ABI field on module, \"{module}\", used by command, \"{command}\"; an ABI of `wasi` or `emscripten` is required",
     )]
-    MissingABI(String, String),
-    #[error("missing module {0} in manifest used by command {1}")]
-    MissingModuleForCommand(String, String),
+    MissingABI { command: String, module: String },
+    #[error("missing module, \"{module}\", in manifest used by command, \"{command}\"")]
+    MissingModuleForCommand { command: String, module: String },
     #[error("The entrypoint, \"{entrypoint}\", isn't a valid command (commands: {})", available_commands.join(", "))]
     InvalidEntrypoint {
         entrypoint: String,
