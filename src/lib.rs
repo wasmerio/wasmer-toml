@@ -632,6 +632,22 @@ impl Manifest {
             }
         }
 
+        if let Some(entrypoint) = &self.package.entrypoint {
+            if self.commands.iter().all(|cmd| cmd.get_name() != entrypoint) {
+                let mut available_commands: Vec<_> =
+                    self.commands.iter().map(|cmd| cmd.get_name()).collect();
+                available_commands.sort();
+                available_commands.dedup();
+
+                return Err(ManifestError::ValidationError(
+                    ValidationError::InvalidEntrypoint {
+                        entrypoint: entrypoint.clone(),
+                        available_commands,
+                    },
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -684,6 +700,11 @@ pub enum ValidationError {
     MissingABI(String, String),
     #[error("missing module {0} in manifest used by command {1}")]
     MissingModuleForCommand(String, String),
+    #[error("The entrypoint, \"{entrypoint}\", isn't a valid command (commands: {})", available_commands.join(", "))]
+    InvalidEntrypoint {
+        entrypoint: String,
+        available_commands: Vec<String>,
+    },
 }
 
 #[cfg(test)]
