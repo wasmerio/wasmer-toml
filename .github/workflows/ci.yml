@@ -17,27 +17,16 @@ jobs:
       - uses: actions/checkout@v2
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: 1.64.0
-          override: true
+      - name: Setup Rust
+        uses: dsherret/rust-toolchain-file@v1
+      - name: Install Nextest
+        uses: taiki-e/install-action@nextest
       - name: Type Checking
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --workspace --verbose --locked
+        run: cargo check --workspace --verbose --locked
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --workspace --verbose --locked
+        run: cargo build --workspace --verbose --locked
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace --verbose --locked
+        run: cargo nextest run --workspace --verbose --locked
 
   lints:
     name: Linting and Formatting
@@ -46,22 +35,12 @@ jobs:
       - uses: actions/checkout@v2
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
+      - name: Setup Rust
+        uses: dsherret/rust-toolchain-file@v1
       - name: Check Formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all --verbose --check
+        run: cargo fmt --all --verbose --check
       - name: Clippy
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --workspace --verbose
+        run: cargo clippy --workspace --verbose
 
   api-docs:
     name: Publish API Docs to GitHub Pages
@@ -70,15 +49,10 @@ jobs:
       - uses: actions/checkout@v2
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: doc
-          args: --workspace --verbose --locked
+      - name: Setup Rust
+        uses: dsherret/rust-toolchain-file@v1
+      - name: Generate API docs
+        run: cargo doc --workspace --verbose --locked
       - name: Redirect top-level GitHub Pages
         run: 'echo ''<meta http-equiv="refresh" content="0; url=${{ env.DEFAULT_CRATE_NAME }}/index.html" />'' > target/doc/index.html'
         shell: bash
