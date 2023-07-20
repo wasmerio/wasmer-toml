@@ -700,111 +700,11 @@ pub enum ValidationError {
 }
 
 #[cfg(test)]
-mod serialization_tests {
-    use super::*;
-    use toml::toml;
-
-    #[test]
-    fn get_manifest() {
-        let wasmer_toml = toml! {
-            [package]
-            name = "test"
-            version = "1.0.0"
-            repository = "test.git"
-            homepage = "test.com"
-            description = "The best package."
-        };
-        let manifest: Manifest = wasmer_toml.try_into().unwrap();
-        assert!(!manifest.package.disable_command_rename);
-    }
-}
-
-#[cfg(test)]
-mod command_tests {
-    use super::*;
-    use toml::toml;
-
-    #[test]
-    fn get_commands() {
-        let wasmer_toml = toml! {
-            [package]
-            name = "test"
-            version = "1.0.0"
-            repository = "test.git"
-            homepage = "test.com"
-            description = "The best package."
-            [[module]]
-            name = "test-pkg"
-            module = "target.wasm"
-            source = "source.wasm"
-            description = "description"
-            interfaces = {"wasi" = "0.0.0-unstable"}
-            [[command]]
-            name = "foo"
-            module = "test"
-            [[command]]
-            name = "baz"
-            module = "test"
-            main_args = "$@"
-        };
-        let manifest: Manifest = wasmer_toml.try_into().unwrap();
-        let commands = &manifest.command.unwrap();
-        assert_eq!(2, commands.len());
-    }
-}
-
-#[cfg(test)]
-mod dependency_tests {
-    use super::*;
-    use std::{fs::File, io::Write};
-    use toml::toml;
-
-    #[test]
-    fn add_new_dependency() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
-        let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
-        let mut file = File::create(manifest_path).unwrap();
-        let wasmer_toml = toml! {
-            [package]
-            name = "_/test"
-            version = "1.0.0"
-            description = "description"
-            [[module]]
-            name = "test"
-            source = "test.wasm"
-            interfaces = {}
-        };
-        let toml_string = toml::to_string(&wasmer_toml).unwrap();
-        file.write_all(toml_string.as_bytes()).unwrap();
-        let mut manifest = Manifest::find_in_directory(tmp_dir).unwrap();
-
-        let dependency_name = "dep_pkg";
-        let dependency_version = semver::Version::new(0, 1, 0);
-
-        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
-        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
-
-        // adding the same dependency twice changes nothing
-        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
-        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
-
-        // adding a second different dependency will increase the count
-        let dependency_name_2 = "dep_pkg_2";
-        let dependency_version_2 = semver::Version::new(0, 2, 0);
-        manifest.add_dependency(
-            dependency_name_2.to_string(),
-            dependency_version_2.to_string(),
-        );
-        assert_eq!(2, manifest.dependencies.as_ref().unwrap().len());
-    }
-}
-
-#[cfg(test)]
-mod manifest_tests {
+mod tests {
     use std::fmt::Debug;
 
     use serde::{de::DeserializeOwned, Deserialize};
+    use toml::toml;
 
     use super::*;
 
@@ -823,6 +723,7 @@ mod manifest_tests {
                 wasmer_extra_flags: None,
                 disable_command_rename: false,
                 rename_commands_to_raw_command_name: false,
+                entrypoint: None,
             },
             dependencies: None,
             module: Some(vec![Module {
@@ -896,7 +797,7 @@ module = "mod"
 
     #[test]
     fn parse_wit_bindings() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wit-bindgen = "0.1.0", wit-exports = "./file.wit" }
@@ -916,7 +817,7 @@ module = "mod"
 
     #[test]
     fn parse_wai_bindings() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wai-version = "0.1.0", exports = "./file.wai", imports = ["a.wai", "../b.wai"] }
@@ -950,7 +851,7 @@ module = "mod"
 
     #[test]
     fn imports_and_exports_are_optional_with_wai() {
-        let table = toml::toml! {
+        let table = toml! {
             name = "..."
             source = "..."
             bindings = { wai-version = "0.1.0" }
@@ -971,7 +872,7 @@ module = "mod"
 
     #[test]
     fn ambiguous_bindings_table() {
-        let table = toml::toml! {
+        let table = toml! {
             wai-version = "0.2.0"
             wit-bindgen = "0.1.0"
         };
@@ -986,7 +887,7 @@ module = "mod"
 
     #[test]
     fn bindings_table_that_is_neither_wit_nor_wai() {
-        let table = toml::toml! {
+        let table = toml! {
             wai-bindgen = "lol, this should have been wai-version"
             exports = "./file.wai"
         };
@@ -1039,5 +940,86 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
                 }))
             })
         );
+    }
+
+    #[test]
+    fn get_manifest() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "test"
+            version = "1.0.0"
+            repository = "test.git"
+            homepage = "test.com"
+            description = "The best package."
+        };
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
+        assert!(!manifest.package.disable_command_rename);
+    }
+
+    #[test]
+    fn get_commands() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "test"
+            version = "1.0.0"
+            repository = "test.git"
+            homepage = "test.com"
+            description = "The best package."
+            [[module]]
+            name = "test-pkg"
+            module = "target.wasm"
+            source = "source.wasm"
+            description = "description"
+            interfaces = {"wasi" = "0.0.0-unstable"}
+            [[command]]
+            name = "foo"
+            module = "test"
+            [[command]]
+            name = "baz"
+            module = "test"
+            main_args = "$@"
+        };
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
+        let commands = &manifest.command.unwrap();
+        assert_eq!(2, commands.len());
+    }
+
+    #[test]
+    fn add_new_dependency() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_dir_path: &std::path::Path = tmp_dir.as_ref();
+        let manifest_path = tmp_dir_path.join(MANIFEST_FILE_NAME);
+        let wasmer_toml = toml! {
+            [package]
+            name = "_/test"
+            version = "1.0.0"
+            description = "description"
+            [[module]]
+            name = "test"
+            source = "test.wasm"
+            interfaces = {}
+        };
+        let toml_string = toml::to_string(&wasmer_toml).unwrap();
+        std::fs::write(manifest_path, toml_string).unwrap();
+        let mut manifest = Manifest::find_in_directory(tmp_dir).unwrap();
+
+        let dependency_name = "dep_pkg";
+        let dependency_version = semver::Version::new(0, 1, 0);
+
+        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
+        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
+
+        // adding the same dependency twice changes nothing
+        manifest.add_dependency(dependency_name.to_string(), dependency_version.to_string());
+        assert_eq!(1, manifest.dependencies.as_ref().unwrap().len());
+
+        // adding a second different dependency will increase the count
+        let dependency_name_2 = "dep_pkg_2";
+        let dependency_version_2 = semver::Version::new(0, 2, 0);
+        manifest.add_dependency(
+            dependency_name_2.to_string(),
+            dependency_version_2.to_string(),
+        );
+        assert_eq!(2, manifest.dependencies.as_ref().unwrap().len());
     }
 }
