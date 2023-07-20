@@ -103,6 +103,9 @@ pub struct Package {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub rename_commands_to_raw_command_name: bool,
+    /// The name of the command that should be used by `wasmer run` by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
