@@ -604,47 +604,55 @@ impl Manifest {
             manifest.package.license_file = Self::locate_file(path.as_ref(), &LICENSE_PATHS[..]);
         }
         manifest.validate()?;
+
         Ok(manifest)
     }
 
-    pub fn validate(&self) -> Result<(), ManifestError> {
-        let module_map = self
-            .modules
-            .iter()
-            .map(|module| (module.name.clone(), module.clone()))
-            .collect::<HashMap<String, Module>>();
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let mut modules = HashMap::new();
+
+        for module in &self.modules {
+            let is_duplicate = modules.insert(&module.name, module).is_some();
+
+            if is_duplicate {
+                return Err(ValidationError::DuplicateModule {
+                    name: module.name.clone(),
+                });
+            }
+        }
+
+        let mut commands = HashMap::new();
 
         for command in &self.commands {
-            if let Some(module) = module_map.get(&command.get_module()) {
+            let is_duplicate = commands.insert(command.get_name(), command).is_some();
+
+            if is_duplicate {
+                return Err(ValidationError::DuplicateCommand {
+                    name: command.get_name(),
+                });
+            }
+
+            if let Some(module) = modules.get(&command.get_module()) {
                 if module.abi == Abi::None && module.interfaces.is_none() {
-                    return Err(ManifestError::ValidationError(ValidationError::MissingABI(
+                    return Err(ValidationError::MissingABI(
                         command.get_name(),
                         module.name.clone(),
-                    )));
+                    ));
                 }
             } else {
-                return Err(ManifestError::ValidationError(
-                    ValidationError::MissingModuleForCommand(
-                        command.get_name(),
-                        command.get_module(),
-                    ),
+                return Err(ValidationError::MissingModuleForCommand(
+                    command.get_name(),
+                    command.get_module(),
                 ));
             }
         }
 
         if let Some(entrypoint) = &self.package.entrypoint {
-            if self.commands.iter().all(|cmd| cmd.get_name() != entrypoint) {
-                let mut available_commands: Vec<_> =
-                    self.commands.iter().map(|cmd| cmd.get_name()).collect();
-                available_commands.sort();
-                available_commands.dedup();
-
-                return Err(ManifestError::ValidationError(
-                    ValidationError::InvalidEntrypoint {
-                        entrypoint: entrypoint.clone(),
-                        available_commands,
-                    },
-                ));
+            if !commands.contains_key(entrypoint) {
+                return Err(ValidationError::InvalidEntrypoint {
+                    entrypoint: entrypoint.clone(),
+                    available_commands: commands.keys().cloned().collect(),
+                });
             }
         }
 
@@ -688,8 +696,8 @@ pub enum ManifestError {
     DependencyVersionMustBeString(String),
     #[error("Package must have version that follows semantic versioning. {0}")]
     SemVerError(String),
-    #[error("There was an error validating the manifest: {0}")]
-    ValidationError(ValidationError),
+    #[error("There was an error validating the manifest")]
+    ValidationError(#[from] ValidationError),
 }
 
 #[derive(Debug, Error)]
@@ -705,6 +713,10 @@ pub enum ValidationError {
         entrypoint: String,
         available_commands: Vec<String>,
     },
+    #[error("Duplicate module, \"{name}\"")]
+    DuplicateModule { name: String },
+    #[error("Duplicate command, \"{name}\"")]
+    DuplicateCommand { name: String },
 }
 
 #[cfg(test)]
