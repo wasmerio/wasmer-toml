@@ -1,4 +1,8 @@
-//! The Manifest file is where the core metadata of a wasmer package lives.
+//! The `wasmer.toml` file format.
+//!
+//! You'll typically start by deserializing into a [`Manifest`] and inspecting
+//! its properties.
+
 pub mod rust;
 
 use std::{
@@ -14,13 +18,16 @@ use semver::{Version, VersionReq};
 use serde::{de::Error as _, Deserialize, Serialize};
 use thiserror::Error;
 
-/// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
-/// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// The ABI is a hint to WebAssembly runtimes about what additional imports to
+/// insert and how a module may be run.
+///
+/// If not specified, [`Abi::None`] is the default.
+#[derive(Clone, Copy, Default, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Abi {
     #[serde(rename = "emscripten")]
     Emscripten,
+    #[default]
     #[serde(rename = "none")]
     None,
     #[serde(rename = "wasi")]
@@ -56,17 +63,10 @@ impl fmt::Display for Abi {
     }
 }
 
-impl Default for Abi {
-    fn default() -> Self {
-        Abi::None
-    }
-}
-
-/// The name of the manifest file. This is hard-coded for now.
+/// The default name for the manifest file.
 pub static MANIFEST_FILE_NAME: &str = "wasmer.toml";
-pub static PACKAGES_DIR_NAME: &str = "wasmer_packages";
 
-pub static README_PATHS: &[&str; 5] = &[
+static README_PATHS: &[&str; 5] = &[
     "README",
     "README.md",
     "README.markdown",
@@ -74,7 +74,7 @@ pub static README_PATHS: &[&str; 5] = &[
     "README.mkdn",
 ];
 
-pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
+static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
 /// Metadata about the package.
 #[derive(Clone, Debug, Deserialize, Serialize, derive_builder::Builder)]
@@ -177,7 +177,12 @@ impl Command {
     }
 }
 
-/// Describes a command for a wasmer module
+/// Describes a command for a wasmer module.
+///
+/// When a command is deserialized using [`CommandV1`], the runner is inferred
+/// by looking at the [`Abi`] from the [`Module`] it refers to.
+///
+/// If possible, prefer to use the [`CommandV2`] format.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
                               // a CommandV2 as a CommandV1
@@ -192,8 +197,14 @@ pub struct CommandV1 {
 pub struct CommandV2 {
     /// The name of the command.
     pub name: String,
+    /// The module containing this command's executable.
     pub module: ModuleReference,
+    /// The runner to use when running this command.
+    ///
+    /// This may be a URL, or the well-known runners `wasi`, `wcgi`, or
+    /// `emscripten`.
     pub runner: String,
+    /// Extra annotations that will be consumed by the runner.
     pub annotations: Option<CommandAnnotations>,
 }
 
@@ -243,6 +254,8 @@ impl CommandV2 {
 /// A reference to a module which may or may not come from another package.
 ///
 /// # Serialization
+///
+/// A [`ModuleReference`] is serialized via its [`String`] representation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModuleReference {
     CurrentPackage {
@@ -658,7 +671,8 @@ impl Manifest {
         toml::from_str(s)
     }
 
-    /// Construct a manifest by searching in the specified directory for a manifest file
+    /// Construct a manifest by searching in the specified directory for a
+    /// manifest file.
     pub fn find_in_directory<T: AsRef<Path>>(path: T) -> Result<Self, ManifestError> {
         let path = path.as_ref();
 
@@ -1358,5 +1372,18 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
                 }
             }
         );
+    }
+
+    #[test]
+    fn round_trip_dependency_module_ref() {
+        let original = ModuleReference::Dependency {
+            dependency: "my/dep".to_string(),
+            module: "module".to_string(),
+        };
+
+        let repr = original.to_string();
+        let round_tripped: ModuleReference = repr.parse().unwrap();
+
+        assert_eq!(round_tripped, original);
     }
 }
