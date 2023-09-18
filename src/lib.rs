@@ -1,11 +1,16 @@
-//! The Manifest file is where the core metadata of a wasmer package lives
+//! The `wasmer.toml` file format.
 //!
+//! You'll typically start by deserializing into a [`Manifest`] and inspecting
+//! its properties.
+
 pub mod rust;
 
 use std::{
+    borrow::Cow,
     collections::{hash_map::HashMap, BTreeMap, BTreeSet},
-    fmt,
+    fmt::{self, Display},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use indexmap::IndexMap;
@@ -13,13 +18,16 @@ use semver::{Version, VersionReq};
 use serde::{de::Error as _, Deserialize, Serialize};
 use thiserror::Error;
 
-/// The ABI is a hint to WebAssembly runtimes about what additional imports to insert.
-/// It currently is only used for validation (in the validation subcommand).  The default value is `None`.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// The ABI is a hint to WebAssembly runtimes about what additional imports to
+/// insert and how a module may be run.
+///
+/// If not specified, [`Abi::None`] is the default.
+#[derive(Clone, Copy, Default, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Abi {
     #[serde(rename = "emscripten")]
     Emscripten,
+    #[default]
     #[serde(rename = "none")]
     None,
     #[serde(rename = "wasi")]
@@ -55,17 +63,10 @@ impl fmt::Display for Abi {
     }
 }
 
-impl Default for Abi {
-    fn default() -> Self {
-        Abi::None
-    }
-}
-
-/// The name of the manifest file. This is hard-coded for now.
+/// The default name for the manifest file.
 pub static MANIFEST_FILE_NAME: &str = "wasmer.toml";
-pub static PACKAGES_DIR_NAME: &str = "wasmer_packages";
 
-pub static README_PATHS: &[&str; 5] = &[
+static README_PATHS: &[&str; 5] = &[
     "README",
     "README.md",
     "README.markdown",
@@ -73,7 +74,7 @@ pub static README_PATHS: &[&str; 5] = &[
     "README.mkdn",
 ];
 
-pub static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
+static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
 /// Metadata about the package.
 #[derive(Clone, Debug, Deserialize, Serialize, derive_builder::Builder)]
@@ -161,76 +162,49 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn get_name(&self) -> String {
+    pub fn get_name(&self) -> &str {
         match self {
-            Self::V1(c) => c.name.clone(),
-            Self::V2(c) => c.name.clone(),
+            Self::V1(c) => &c.name,
+            Self::V2(c) => &c.name,
         }
     }
 
-    pub fn get_module(&self) -> String {
+    pub fn get_module(&self) -> &ModuleReference {
         match self {
-            Self::V1(c) => c.module.clone(),
-            // TODO(felix): how to migrate to the new API?
-            Self::V2(c) => c.module.clone(),
-        }
-    }
-
-    pub fn get_package(&self) -> Option<String> {
-        match self {
-            Self::V1(c) => c.package.clone(),
-            // TODO(felix): how to migrate to the new version / "kind" API?
-            Self::V2(_) => None,
-        }
-    }
-
-    pub fn get_main_args(&self) -> Vec<String> {
-        match self {
-            Self::V1(c) => c
-                .main_args
-                .as_deref()
-                .unwrap_or("")
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect(),
-            Self::V2(c) => {
-                let annotations = match c.annotations.as_ref() {
-                    Some(CommandAnnotations::Raw(s)) => s,
-                    _ => return Vec::new(),
-                };
-                let annotations = match annotations.get("wasi") {
-                    Some(toml::Value::Table(m)) => m,
-                    _ => return Vec::new(),
-                };
-                let annotations = match annotations.get("main_args") {
-                    Some(toml::Value::String(m)) => m.to_string(),
-                    _ => return Vec::new(),
-                };
-                annotations
-                    .split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect()
-            }
+            Self::V1(c) => &c.module,
+            Self::V2(c) => &c.module,
         }
     }
 }
 
-/// Describes a command for a wasmer module
+/// Describes a command for a wasmer module.
+///
+/// When a command is deserialized using [`CommandV1`], the runner is inferred
+/// by looking at the [`Abi`] from the [`Module`] it refers to.
+///
+/// If possible, prefer to use the [`CommandV2`] format.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
                               // a CommandV2 as a CommandV1
 pub struct CommandV1 {
     pub name: String,
-    pub module: String,
+    pub module: ModuleReference,
     pub main_args: Option<String>,
     pub package: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct CommandV2 {
+    /// The name of the command.
     pub name: String,
-    pub module: String,
+    /// The module containing this command's executable.
+    pub module: ModuleReference,
+    /// The runner to use when running this command.
+    ///
+    /// This may be a URL, or the well-known runners `wasi`, `wcgi`, or
+    /// `emscripten`.
     pub runner: String,
+    /// Extra annotations that will be consumed by the runner.
     pub annotations: Option<CommandAnnotations>,
 }
 
@@ -277,7 +251,80 @@ impl CommandV2 {
     }
 }
 
-pub fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
+/// A reference to a module which may or may not come from another package.
+///
+/// # Serialization
+///
+/// A [`ModuleReference`] is serialized via its [`String`] representation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ModuleReference {
+    CurrentPackage {
+        /// The name of the module.
+        module: String,
+    },
+    /// A module that will be provided by a dependency, in `dependency:module`
+    /// form.
+    Dependency {
+        /// The name of the dependency the module comes from.
+        dependency: String,
+        /// The name of the module.
+        module: String,
+    },
+}
+
+impl Serialize for ModuleReference {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ModuleReference {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let repr: Cow<'de, str> = Cow::deserialize(deserializer)?;
+        repr.parse().map_err(D::Error::custom)
+    }
+}
+
+impl FromStr for ModuleReference {
+    type Err = Box<dyn std::error::Error + Send + Sync>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split_once(':') {
+            Some((dependency, module)) => {
+                if module.contains(':') {
+                    return Err("Invalid format".into());
+                }
+
+                Ok(ModuleReference::Dependency {
+                    dependency: dependency.to_string(),
+                    module: module.to_string(),
+                })
+            }
+            None => Ok(ModuleReference::CurrentPackage {
+                module: s.to_string(),
+            }),
+        }
+    }
+}
+
+impl Display for ModuleReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModuleReference::CurrentPackage { module } => Display::fmt(module, f),
+            ModuleReference::Dependency { dependency, module } => {
+                write!(f, "{dependency}:{module}")
+            }
+        }
+    }
+}
+
+fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
     match val {
         toml::Value::String(s) => serde_cbor::Value::Text(s.clone()),
         toml::Value::Integer(i) => serde_cbor::Value::Integer(*i as i128),
@@ -295,7 +342,7 @@ pub fn toml_to_cbor_value(val: &toml::Value) -> serde_cbor::Value {
     }
 }
 
-pub fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
+fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
     match val {
         serde_json::Value::Null => serde_cbor::Value::Null,
         serde_json::Value::Bool(b) => serde_cbor::Value::Bool(*b),
@@ -322,7 +369,7 @@ pub fn json_to_cbor_value(val: &serde_json::Value) -> serde_cbor::Value {
     }
 }
 
-pub fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
+fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
     match val {
         serde_yaml::Value::Null => serde_cbor::Value::Null,
         serde_yaml::Value::Bool(b) => serde_cbor::Value::Bool(*b),
@@ -624,7 +671,8 @@ impl Manifest {
         toml::from_str(s)
     }
 
-    /// Construct a manifest by searching in the specified directory for a manifest file
+    /// Construct a manifest by searching in the specified directory for a
+    /// manifest file.
     pub fn find_in_directory<T: AsRef<Path>>(path: T) -> Result<Self, ManifestError> {
         let path = path.as_ref();
 
@@ -668,30 +716,46 @@ impl Manifest {
 
             if is_duplicate {
                 return Err(ValidationError::DuplicateCommand {
-                    name: command.get_name(),
+                    name: command.get_name().to_string(),
                 });
             }
 
-            if let Some(module) = modules.get(&command.get_module()) {
-                if module.abi == Abi::None && module.interfaces.is_none() {
-                    return Err(ValidationError::MissingABI {
-                        command: command.get_name(),
-                        module: module.name.clone(),
-                    });
+            let module_reference = command.get_module();
+            match &module_reference {
+                ModuleReference::CurrentPackage { module } => {
+                    if let Some(module) = modules.get(&module) {
+                        if module.abi == Abi::None && module.interfaces.is_none() {
+                            return Err(ValidationError::MissingABI {
+                                command: command.get_name().to_string(),
+                                module: module.name.clone(),
+                            });
+                        }
+                    } else {
+                        return Err(ValidationError::MissingModuleForCommand {
+                            command: command.get_name().to_string(),
+                            module: command.get_module().clone(),
+                        });
+                    }
                 }
-            } else {
-                return Err(ValidationError::MissingModuleForCommand {
-                    command: command.get_name(),
-                    module: command.get_module(),
-                });
+                ModuleReference::Dependency { dependency, .. } => {
+                    // We don't have access to the dependency so just assume
+                    // the module is correct.
+                    if !self.dependencies.contains_key(dependency) {
+                        return Err(ValidationError::MissingDependency {
+                            command: command.get_name().to_string(),
+                            dependency: dependency.clone(),
+                            module_ref: module_reference.clone(),
+                        });
+                    }
+                }
             }
         }
 
-        if let Some(entrypoint) = &self.package.entrypoint {
+        if let Some(entrypoint) = self.package.entrypoint.as_deref() {
             if !commands.contains_key(entrypoint) {
                 return Err(ValidationError::InvalidEntrypoint {
-                    entrypoint: entrypoint.clone(),
-                    available_commands: commands.keys().cloned().collect(),
+                    entrypoint: entrypoint.to_string(),
+                    available_commands: commands.keys().map(ToString::to_string).collect(),
                 });
             }
         }
@@ -791,7 +855,16 @@ pub enum ValidationError {
     )]
     MissingABI { command: String, module: String },
     #[error("missing module, \"{module}\", in manifest used by command, \"{command}\"")]
-    MissingModuleForCommand { command: String, module: String },
+    MissingModuleForCommand {
+        command: String,
+        module: ModuleReference,
+    },
+    #[error("The \"{command}\" command refers to a nonexistent dependency, \"{dependency}\" in \"{module_ref}\"")]
+    MissingDependency {
+        command: String,
+        dependency: String,
+        module_ref: ModuleReference,
+    },
     #[error("The entrypoint, \"{entrypoint}\", isn't a valid command (commands: {})", available_commands.join(", "))]
     InvalidEntrypoint {
         entrypoint: String,
@@ -1033,7 +1106,7 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
             commands[0],
             Command::V2(CommandV2 {
                 name: "run".into(),
-                module: "sine".into(),
+                module: "sine".parse().unwrap(),
                 runner: "rune".into(),
                 annotations: Some(CommandAnnotations::File(FileCommandAnnotations {
                     file: "Runefile.yml".into(),
@@ -1205,6 +1278,7 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
             }
         );
     }
+
     #[test]
     fn command_with_nonexistent_module() {
         let wasmer_toml = toml! {
@@ -1224,7 +1298,7 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
             error,
             ValidationError::MissingModuleForCommand {
                 command: "cmd".to_string(),
-                module: "this-doesnt-exist".to_string()
+                module: "this-doesnt-exist".parse().unwrap()
             }
         );
     }
@@ -1238,5 +1312,78 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
         let manifest = Manifest::builder(package).build().unwrap();
 
         manifest.validate().unwrap();
+    }
+
+    #[test]
+    fn deserialize_command_referring_to_module_from_dependency() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+
+            [dependencies]
+            dep = "1.2.3"
+
+            [[command]]
+            name = "cmd"
+            module = "dep:module"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let command = manifest
+            .commands
+            .iter()
+            .find(|cmd| cmd.get_name() == "cmd")
+            .unwrap();
+
+        assert_eq!(
+            command.get_module(),
+            &ModuleReference::Dependency {
+                dependency: "dep".to_string(),
+                module: "module".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn command_with_module_from_nonexistent_dependency() {
+        let wasmer_toml = toml! {
+            [package]
+            name = "some/package"
+            version = "0.0.0"
+            description = ""
+            [[command]]
+            name = "cmd"
+            module = "dep:module"
+        };
+        let manifest = Manifest::deserialize(wasmer_toml).unwrap();
+
+        let error = manifest.validate().unwrap_err();
+
+        assert_eq!(
+            error,
+            ValidationError::MissingDependency {
+                command: "cmd".to_string(),
+                dependency: "dep".to_string(),
+                module_ref: ModuleReference::Dependency {
+                    dependency: "dep".to_string(),
+                    module: "module".to_string()
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn round_trip_dependency_module_ref() {
+        let original = ModuleReference::Dependency {
+            dependency: "my/dep".to_string(),
+            module: "module".to_string(),
+        };
+
+        let repr = original.to_string();
+        let round_tripped: ModuleReference = repr.parse().unwrap();
+
+        assert_eq!(round_tripped, original);
     }
 }
