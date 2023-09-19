@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.7.0...wasmer-toml-v0.8.0) (2023-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Removed some unnecessary command getters and switched others from returning owned copies to returning references
+
+### Features
+
+* Commands can now use modules from other dependencies with the `module = "my/dependency:module"` syntax ([88b784d](https://github.com/wasmerio/wasmer-toml/commit/88b784dc6ed5ddae6c2edc69c82c416be62cef35))
+* Removed some unnecessary command getters and switched others from returning owned copies to returning references ([88b784d](https://github.com/wasmerio/wasmer-toml/commit/88b784dc6ed5ddae6c2edc69c82c416be62cef35))
+
+
+### Miscellaneous Chores
+
+* Release 0.8.0 ([c885839](https://github.com/wasmerio/wasmer-toml/commit/c8858399767cec116f8560a5e913bdfdf3e00771))
+
 ## [0.7.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.6.0...wasmer-toml-v0.7.0) (2023-07-20)
 
 
