@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.8.0...wasmer-toml-v0.8.1) (2023-09-29)
+
+
+### Bug Fixes
+
+* Public dependencies that aren't 1.0 yet are now re-exported using `pub extern crate` ([f320204](https://github.com/wasmerio/wasmer-toml/commit/f320204adc8cff1fa635b59e651adcdffff11702))
+
 ## [0.8.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.7.0...wasmer-toml-v0.8.0) (2023-09-19)
 
 
