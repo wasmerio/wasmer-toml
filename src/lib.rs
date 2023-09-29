@@ -3,6 +3,9 @@
 //! You'll typically start by deserializing into a [`Manifest`] and inspecting
 //! its properties.
 
+pub extern crate serde_cbor;
+pub extern crate toml;
+
 pub mod rust;
 
 use std::{
