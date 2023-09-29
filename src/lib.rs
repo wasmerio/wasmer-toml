@@ -3,6 +3,8 @@
 //! You'll typically start by deserializing into a [`Manifest`] and inspecting
 //! its properties.
 
+#![allow(deprecated)]
+
 pub extern crate serde_cbor;
 pub extern crate toml;
 
@@ -127,6 +129,10 @@ pub struct Package {
     pub homepage: Option<String>,
     #[serde(rename = "wasmer-extra-flags")]
     #[builder(setter(into, strip_option), default)]
+    #[deprecated(
+        since = "0.9.2",
+        note = "Use runner-specific command attributes instead"
+    )]
     pub wasmer_extra_flags: Option<String>,
     #[serde(
         rename = "disable-command-rename",
@@ -134,6 +140,10 @@ pub struct Package {
         skip_serializing_if = "std::ops::Not::not"
     )]
     #[builder(default)]
+    #[deprecated(
+        since = "0.9.2",
+        note = "Does nothing. Prefer a runner-specific command attribute instead"
+    )]
     pub disable_command_rename: bool,
     /// Unlike, `disable-command-rename` which prevents `wasmer run <Module name>`,
     /// this flag enables the command rename of `wasmer run <COMMAND_NAME>` into
@@ -146,6 +156,10 @@ pub struct Package {
         skip_serializing_if = "std::ops::Not::not"
     )]
     #[builder(default)]
+    #[deprecated(
+        since = "0.9.2",
+        note = "Does nothing. Prefer a runner-specific command attribute instead"
+    )]
     pub rename_commands_to_raw_command_name: bool,
     /// The name of the command that should be used by `wasmer run` by default.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,7 +223,8 @@ impl Command {
 /// If possible, prefer to use the [`CommandV2`] format.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)] // Note: needed to prevent accidentally parsing
-                              // a CommandV2 as a CommandV1
+// a CommandV2 as a CommandV1
+#[deprecated(since = "0.9.2", note = "Prefer the CommandV2 syntax")]
 pub struct CommandV1 {
     pub name: String,
     pub module: ModuleReference,
