@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.8.1...wasmer-toml-v0.9.0) (2023-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* Upgraded public dependencies
+
+### Miscellaneous Chores
+
+* Upgraded public dependencies ([2749624](https://github.com/wasmerio/wasmer-toml/commit/2749624bb63bb8fe614eb26d0d871828cce49b14))
+
 ## [0.8.1](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.8.0...wasmer-toml-v0.8.1) (2023-09-29)
 
 
