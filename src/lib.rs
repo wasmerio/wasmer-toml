@@ -1058,7 +1058,7 @@ module = "mod"
 
         assert_eq!(
             err.to_string(),
-            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both"
+            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both\n"
         );
     }
 
@@ -1073,7 +1073,7 @@ module = "mod"
 
         assert_eq!(
             err.to_string(),
-            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both"
+            "expected one of \"wit-bindgen\" or \"wai-version\" to be provided, but not both\n"
         );
     }
 
