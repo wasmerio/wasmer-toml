@@ -1,3 +1,5 @@
+//! Rust-specific annotations used to interoperate with external tools.
+
 use crate::{Abi, Bindings};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -12,6 +14,7 @@ pub struct Wasmer {
     /// The name the package should be published under, if it differs from the
     /// crate name.
     pub package: Option<String>,
+    /// Extra flags that should be passed to the `wasmer` CLI.
     pub wasmer_extra_flags: Option<String>,
     /// The ABI to use when adding the compiled crate to the package.
     pub abi: Abi,

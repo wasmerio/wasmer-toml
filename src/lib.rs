@@ -40,6 +40,7 @@ pub enum Abi {
 }
 
 impl Abi {
+    /// Get the ABI's human-friendly name.
     pub fn to_str(&self) -> &str {
         match self {
             Abi::Emscripten => "emscripten",
@@ -48,15 +49,15 @@ impl Abi {
             Abi::None => "generic",
         }
     }
+
+    /// Is this a [`Abi::None`]?
     pub fn is_none(&self) -> bool {
-        self == &Abi::None
+        matches!(self, Abi::None)
     }
+
+    /// Create an [`Abi`] from its human-friendly name.
     pub fn from_name(name: &str) -> Self {
-        match name.to_lowercase().as_ref() {
-            "emscripten" => Abi::Emscripten,
-            "wasi" => Abi::Wasi,
-            _ => Abi::None,
-        }
+        name.parse().unwrap_or(Abi::None)
     }
 }
 
@@ -66,10 +67,24 @@ impl fmt::Display for Abi {
     }
 }
 
+impl FromStr for Abi {
+    type Err = Box<dyn std::error::Error + Send + Sync>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "emscripten" => Ok(Abi::Emscripten),
+            "wasi" => Ok(Abi::Wasi),
+            "wasm4" => Ok(Abi::WASM4),
+            "generic" => Ok(Abi::None),
+            _ => Err(format!("Unknown ABI, \"{s}\"").into()),
+        }
+    }
+}
+
 /// The default name for the manifest file.
 pub static MANIFEST_FILE_NAME: &str = "wasmer.toml";
 
-static README_PATHS: &[&str; 5] = &[
+const README_PATHS: &[&str; 5] = &[
     "README",
     "README.md",
     "README.markdown",
@@ -77,7 +92,7 @@ static README_PATHS: &[&str; 5] = &[
     "README.mkdn",
 ];
 
-static LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
+const LICENSE_PATHS: &[&str; 3] = &["LICENSE", "LICENSE.md", "COPYING"];
 
 /// Metadata about the package.
 #[derive(Clone, Debug, Deserialize, Serialize, derive_builder::Builder)]
@@ -165,6 +180,7 @@ pub enum Command {
 }
 
 impl Command {
+    /// Get the command's name.
     pub fn get_name(&self) -> &str {
         match self {
             Self::V1(c) => &c.name,
@@ -172,6 +188,7 @@ impl Command {
         }
     }
 
+    /// Get the module this [`Command`] refers to.
     pub fn get_module(&self) -> &ModuleReference {
         match self {
             Self::V1(c) => &c.module,
@@ -196,6 +213,7 @@ pub struct CommandV1 {
     pub package: Option<String>,
 }
 
+/// An executable command.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct CommandV2 {
     /// The name of the command.
@@ -212,6 +230,8 @@ pub struct CommandV2 {
 }
 
 impl CommandV2 {
+    /// Get annotations, automatically loading them from a file relative to the
+    /// `wasmer.toml`'s directory, if necessary.
     pub fn get_annotations(&self, basepath: &Path) -> Result<Option<serde_cbor::Value>, String> {
         match self.annotations.as_ref() {
             Some(CommandAnnotations::Raw(v)) => Ok(Some(toml_to_cbor_value(v))),
@@ -261,6 +281,7 @@ impl CommandV2 {
 /// A [`ModuleReference`] is serialized via its [`String`] representation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModuleReference {
+    /// A module in the current package.
     CurrentPackage {
         /// The name of the module.
         module: String,
@@ -400,28 +421,39 @@ fn yaml_to_cbor_value(val: &serde_yaml::Value) -> serde_cbor::Value {
     }
 }
 
+/// Annotations for a command.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 #[repr(C)]
 pub enum CommandAnnotations {
+    /// Annotations that will be read from a file on disk.
     File(FileCommandAnnotations),
+    /// Annotations that are specified inline.
     Raw(toml::Value),
 }
 
+/// Annotations on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FileCommandAnnotations {
+    /// The path to the annotations file.
     pub file: PathBuf,
+    /// Which format are the annotations saved in?
     pub kind: FileKind,
 }
 
+/// The different formats that [`FileCommandAnnotations`] can be saved in.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Deserialize, Serialize)]
 pub enum FileKind {
+    /// A `*.yaml` file that will be deserialized using [`serde_yaml`].
     #[serde(rename = "yaml")]
     Yaml,
+    /// A `*.json` file that will be deserialized using [`serde_json`].
     #[serde(rename = "json")]
     Json,
 }
 
+/// A file which may be executed by a [`Command`]. Sometimes also referred to as
+/// an "atom".
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Module {
     /// The name used to refer to this module.
@@ -437,6 +469,8 @@ pub struct Module {
     /// WebAssembly interfaces this module requires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interfaces: Option<HashMap<String, String>>,
+    /// Interface definitions that can be used to generate bindings to this
+    /// module.
     pub bindings: Option<Bindings>,
 }
 
@@ -612,6 +646,7 @@ fn get_imported_wai_files(path: &Path) -> Result<Vec<PathBuf>, ImportsError> {
     Ok(resolved_paths)
 }
 
+/// Errors that may occur when resolving [`Bindings`] imports.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ImportsError {
@@ -670,6 +705,7 @@ impl Manifest {
         ManifestBuilder::new(package)
     }
 
+    /// Parse a [`Manifest`] from its TOML representation.
     pub fn parse(s: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(s)
     }
@@ -699,6 +735,15 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// Validate this [`Manifest`] to check for common semantic errors.
+    ///
+    /// Some common error cases are:
+    ///
+    /// - Having multiple modules with the same name
+    /// - Having multiple commands with the same name
+    /// - A [`Command`] that references a non-existent [`Module`] in the current
+    ///   package
+    /// - A [`Package::entrypoint`] which points to a non-existent [`Command`]
     pub fn validate(&self) -> Result<(), ValidationError> {
         let mut modules = BTreeMap::new();
 
@@ -777,6 +822,7 @@ impl Manifest {
         self.dependencies.remove(dependency_name)
     }
 
+    /// Convert a [`Manifest`] to its TOML representation.
     pub fn to_string(&self) -> anyhow::Result<String> {
         let repr = toml::to_string_pretty(&self)?;
         Ok(repr)
@@ -837,6 +883,7 @@ impl ManifestBuilder {
     }
 }
 
+/// Errors that may occur while working with a [`Manifest`].
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ManifestError {
@@ -850,6 +897,7 @@ pub enum ManifestError {
     ValidationError(#[from] ValidationError),
 }
 
+/// Errors that may be returned by [`Manifest::validate()`].
 #[derive(Debug, PartialEq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
