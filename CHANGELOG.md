@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.0...wasmer-toml-v0.9.1) (2023-10-09)
+
+
+### Features
+
+* Packages can be marked as private by setting `private = true` under `[package]` ([6eb00dc](https://github.com/wasmerio/wasmer-toml/commit/6eb00dc55d72ec04ab04dda96d169a01cf56bef0))
+
 ## [0.9.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.8.1...wasmer-toml-v0.9.0) (2023-09-29)
 
 
