@@ -151,6 +151,10 @@ pub struct Package {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
     pub entrypoint: Option<String>,
+    /// Mark this as a private package
+    #[serde(default)]
+    #[builder(default)]
+    pub private: bool,
 }
 
 impl Package {
@@ -952,6 +956,7 @@ mod tests {
                 disable_command_rename: false,
                 rename_commands_to_raw_command_name: false,
                 entrypoint: None,
+                private: false,
             },
             dependencies: HashMap::new(),
             modules: vec![Module {
