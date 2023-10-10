@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.2](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.1...wasmer-toml-v0.9.2) (2023-10-10)
+
+
+### Features
+
+* Deprecated CommandV1 and several unused Package fields ([331831e](https://github.com/wasmerio/wasmer-toml/commit/331831e1064f5f49d3fc134ba76297cb777fcdcb))
+
+
+### Bug Fixes
+
+* Serializing a `wasmer_toml::Package` won't include the `private` flag unless it is `true` ([1791623](https://github.com/wasmerio/wasmer-toml/commit/1791623d0c8ff4d03429b78053d93561ff62da70))
+
 ## [0.9.1](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.0...wasmer-toml-v0.9.1) (2023-10-09)
 
 
