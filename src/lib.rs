@@ -152,7 +152,7 @@ pub struct Package {
     #[builder(setter(into, strip_option), default)]
     pub entrypoint: Option<String>,
     /// Mark this as a private package
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[builder(default)]
     pub private: bool,
 }
