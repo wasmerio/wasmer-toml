@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["Wasmer","The annotation used by `cargo wapm` when it parses the `[package.metadata.wapm]` table in your `Cargo.toml`."]]};
