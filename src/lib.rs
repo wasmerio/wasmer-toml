@@ -742,7 +742,7 @@ impl Manifest {
             .map_err(|_e| ManifestError::MissingManifest(manifest_path_buf))?;
         let mut manifest: Self = toml::from_str(contents.as_str())?;
 
-        if let Some(mut package) = manifest.package.clone() {
+        if let Some(mut package) = manifest.package.as_mut() {
             if package.readme.is_none() {
                 package.readme = locate_file(path, README_PATHS);
             }
@@ -750,7 +750,6 @@ impl Manifest {
             if package.license_file.is_none() {
                 package.license_file = locate_file(path, LICENSE_PATHS);
             }
-            manifest.package = Some(package);
         }
         manifest.validate()?;
 
