@@ -698,7 +698,7 @@ pub enum ImportsError {
 #[non_exhaustive]
 pub struct Manifest {
     /// Metadata about the package itself.
-    pub package: Package,
+    pub package: Option<Package>,
     /// The package's dependencies.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     #[builder(default)]
@@ -742,12 +742,15 @@ impl Manifest {
             .map_err(|_e| ManifestError::MissingManifest(manifest_path_buf))?;
         let mut manifest: Self = toml::from_str(contents.as_str())?;
 
-        if manifest.package.readme.is_none() {
-            manifest.package.readme = locate_file(path, README_PATHS);
-        }
+        if let Some(mut package) = manifest.package.clone() {
+            if package.readme.is_none() {
+                package.readme = locate_file(path, README_PATHS);
+            }
 
-        if manifest.package.license_file.is_none() {
-            manifest.package.license_file = locate_file(path, LICENSE_PATHS);
+            if package.license_file.is_none() {
+                package.license_file = locate_file(path, LICENSE_PATHS);
+            }
+            manifest.package = Some(package);
         }
         manifest.validate()?;
 
@@ -818,12 +821,14 @@ impl Manifest {
             }
         }
 
-        if let Some(entrypoint) = self.package.entrypoint.as_deref() {
-            if !commands.contains_key(entrypoint) {
-                return Err(ValidationError::InvalidEntrypoint {
-                    entrypoint: entrypoint.to_string(),
-                    available_commands: commands.keys().map(ToString::to_string).collect(),
-                });
+        if let Some(package) = &self.package {
+            if let Some(entrypoint) = package.entrypoint.as_deref() {
+                if !commands.contains_key(entrypoint) {
+                    return Err(ValidationError::InvalidEntrypoint {
+                        entrypoint: entrypoint.to_string(),
+                        available_commands: commands.keys().map(ToString::to_string).collect(),
+                    });
+                }
             }
         }
 
@@ -868,7 +873,7 @@ fn locate_file(path: &Path, candidates: &[&str]) -> Option<PathBuf> {
 impl ManifestBuilder {
     pub fn new(package: Package) -> Self {
         let mut builder = ManifestBuilder::default();
-        builder.package(package);
+        builder.package(Some(package));
         builder
     }
 
@@ -958,7 +963,7 @@ mod tests {
     #[test]
     fn test_to_string() {
         Manifest {
-            package: Package {
+            package: Some(Package {
                 name: "package/name".to_string(),
                 version: Version::parse("1.0.0").unwrap(),
                 description: "test".to_string(),
@@ -972,7 +977,7 @@ mod tests {
                 rename_commands_to_raw_command_name: false,
                 entrypoint: None,
                 private: false,
-            },
+            }),
             dependencies: HashMap::new(),
             modules: vec![Module {
                 name: "test".to_string(),
@@ -1198,7 +1203,21 @@ annotations = { file = "Runefile.yml", kind = "yaml" }
             description = "The best package."
         };
         let manifest: Manifest = wasmer_toml.try_into().unwrap();
-        assert!(!manifest.package.disable_command_rename);
+        if let Some(package) = manifest.package {
+            assert!(!package.disable_command_rename);
+        }
+    }
+
+    #[test]
+    fn parse_manifest_without_package_section() {
+        let wasmer_toml = toml! {
+            [[module]]
+            name = "test-module"
+            source = "data.wasm"
+            abi = "wasi"
+        };
+        let manifest: Manifest = wasmer_toml.try_into().unwrap();
+        assert!(manifest.package.is_none());
     }
 
     #[test]
