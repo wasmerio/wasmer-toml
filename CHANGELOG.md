@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.3...wasmer-toml-v0.10.0) (2024-04-09)
+
+
+### Features
+
+* Add support for unnamed packages ([#40](https://github.com/wasmerio/wasmer-toml/issues/40)) ([#41](https://github.com/wasmerio/wasmer-toml/issues/41)) ([7d1fd97](https://github.com/wasmerio/wasmer-toml/commit/7d1fd978852736afab5de36ff9b3066d7a2a6108))
+
 ## [0.9.3](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.2...wasmer-toml-v0.9.3) (2024-04-09)
 
 
