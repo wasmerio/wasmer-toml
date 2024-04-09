@@ -420,7 +420,7 @@ checksum = "f28467d3e1d3c6586d8f25fa243f544f5800fec42d97032474e17222c2b75cfa"
 
 [[package]]
 name = "wasmer-toml"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "derive_builder",
