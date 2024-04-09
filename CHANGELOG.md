@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.2...wasmer-toml-v0.9.3) (2024-04-09)
+
+
+### Miscellaneous Chores
+
+* release 0.9.3 ([#36](https://github.com/wasmerio/wasmer-toml/issues/36)) ([d2e0003](https://github.com/wasmerio/wasmer-toml/commit/d2e0003a7b014ac01e4db94d66b757c6e3a5b409))
+
 ## [0.9.2](https://github.com/wasmerio/wasmer-toml/compare/wasmer-toml-v0.9.1...wasmer-toml-v0.9.2) (2023-10-10)
 
 
